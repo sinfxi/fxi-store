@@ -371,6 +371,11 @@ async def help_cmd(message: Message):
         "/schedule 120 — برنامه‌ریزی برای زمان دلخواه (دقیقه)\n"
         "/focus — روش تمرکز ۲۵/۵ دقیقه‌ای\n"
         "/progress — گزارش پیشرفت یادگیری\n"
+        "/profile پایه هشتم — ثبت مقطع تحصیلی\n"
+        "/goal 45 — تعیین هدف مطالعه روزانه به دقیقه\n"
+        "/done 25 — ثبت یک جلسه مطالعه و زمان آن\n"
+        "/streak — زنجیره مطالعه و هدف امروز\n"
+        "/review — مرور فلش‌کارت‌های سررسیدشده\n"
         "/resources — جستجوی کمک‌درسی داخل ربات\n"
         "/search عبارت — پیدا کردن نتیجه‌های درسی داخل ربات\n"
         "/privacy — اطلاعات حریم خصوصی\n"
@@ -871,8 +876,7 @@ async def review_cmd(message: Message):
         await message.answer("🎉 کارت سررسیدشده‌ای نداری. چند فلش‌کارت مرور کن؛ پاسخ «بلدم» فاصلهٔ مرور بعدی را به‌تدریج بیشتر می‌کند.", reply_markup=category_keyboard())
         return
     category = FLASHCARDS[card_id][0]
-    await message.answer(f"🔁 مرور فاصله‌دار • {count} کارت سررسید شده", reply_markup=card_keyboard(card_id, category))
-    await message.answer(format_card(card_id, category), reply_markup=card_keyboard(card_id, category))
+    await message.answer(f"🔁 مرور فاصله‌دار • {count} کارت سررسید شده\n\n" + format_card(card_id, category), reply_markup=card_keyboard(card_id, category))
 
 @dp.message(Command("admin"))
 async def admin_cmd(message: Message):
