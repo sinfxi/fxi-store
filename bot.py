@@ -247,8 +247,8 @@ async def find_study_results(query: str):
 @dp.message(Command("resources"))
 async def resources_cmd(message: Message):
     await message.answer(
-        "📘 کمک‌درسی\\n\\n"
-        "موضوع یا سؤال درسی‌ات را همین‌جا بفرست؛ نتیجه‌ها داخل ربات نمایش داده می‌شوند و لازم نیست از تلگرام خارج شوی.\\n"
+        "📘 کمک‌درسی\n\n"
+        "موضوع یا سؤال درسی‌ات را همین‌جا بفرست؛ نتیجه‌ها داخل ربات نمایش داده می‌شوند و لازم نیست از تلگرام خارج شوی.\n"
         "مثال: /search جواب تمرین صفحه ۳۲ علوم هشتم"
     )
 
@@ -256,7 +256,7 @@ async def resources_cmd(message: Message):
 async def resource_search_cmd(message: Message):
     query = (message.text or "").partition(" ")[2].strip()
     if not query:
-        await message.answer("سؤال یا موضوع درسی را بنویس:\\n/search جواب تمرین صفحه ۳۲ علوم هشتم")
+        await message.answer("سؤال یا موضوع درسی را بنویس:\n/search جواب تمرین صفحه ۳۲ علوم هشتم")
         return
     status = await message.answer("🔎 دارم جواب‌ها و تمرین‌های مرتبط را پیدا می‌کنم…")
     try:
@@ -269,15 +269,15 @@ async def resource_search_cmd(message: Message):
         return
     if not results:
         await status.edit_text(
-            f"برای «{query}» نتیجه‌ی مناسبی پیدا نکردم.\\n\\n"
+            f"برای «{query}» نتیجه‌ی مناسبی پیدا نکردم.\n\n"
             "نام درس، پایه، شماره صفحه یا متن سؤال را دقیق‌تر بفرست؛ یا از /ask برای توضیح استفاده کن."
         )
         return
     body = [f"📘 نتیجه‌های درسی برای: {query}"]
     for i, (title, snippet) in enumerate(results, 1):
-        body.append(f"\\n{i}. {title}" + (f"\\n{snippet}" if snippet else ""))
-    body.append("\\n\\nاگر پاسخ کامل نبود، متن یا عکس سؤال را بفرست تا داخل ربات مرحله‌به‌مرحله حلش کنم.")
-    text_out = "\\n".join(body)
+        body.append(f"\n{i}. {title}" + (f"\n{snippet}" if snippet else ""))
+    body.append("\n\nاگر پاسخ کامل نبود، متن یا عکس سؤال را بفرست تا داخل ربات مرحله‌به‌مرحله حلش کنم.")
+    text_out = "\n".join(body)
     await status.edit_text(text_out[:4000], disable_web_page_preview=True)
 
 @dp.message(Command("help"))
