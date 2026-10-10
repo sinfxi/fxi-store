@@ -183,8 +183,8 @@ async def answer_question(question: str) -> str:
     global openai_client
     if not OPENAI_API_KEY and not GROQ_API_KEY:
         return (
-            "🤖 معلم هوشمند هنوز به کلید سرویس هوش مصنوعی وصل نیست.\\n"
-            "مدیر باید GROQ_API_KEY یا OPENAI_API_KEY را در Variables ریلوی تنظیم کند.\\n\\n"
+            "🤖 معلم هوشمند هنوز به کلید سرویس هوش مصنوعی وصل نیست.\n"
+            "مدیر باید GROQ_API_KEY یا OPENAI_API_KEY را در Variables ریلوی تنظیم کند.\n\n"
             "تا آن زمان از آزمون‌ها، فلش‌کارت‌ها و جستجوی کمک‌درسی استفاده کن."
         )
     try:
@@ -261,8 +261,8 @@ async def find_study_results(query: str):
 async def resources_cmd(message: Message):
     awaiting_study_search.add(message.from_user.id)
     await message.answer(
-        "📘 کمک‌درسی\\n\\n"
-        "سؤال یا موضوع درسی‌ات را همین‌جا بنویس. نتیجه‌ها داخل ربات نمایش داده می‌شوند.\\n"
+        "📘 کمک‌درسی\n\n"
+        "سؤال یا موضوع درسی‌ات را همین‌جا بنویس. نتیجه‌ها داخل ربات نمایش داده می‌شوند.\n"
         "برای شروع، فقط متن سؤال را بفرست."
     )
 
@@ -288,17 +288,17 @@ async def perform_study_search(message: Message, query: str):
         return
     if not results:
         await status.edit_text(
-            f"برای «{query}» نتیجه‌ی مناسبی پیدا نکردم.\\n\\n"
+            f"برای «{query}» نتیجه‌ی مناسبی پیدا نکردم.\n\n"
             "می‌توانی سؤال را دقیق‌تر بنویسی یا با دکمه‌ی «جستجوی سؤال دیگر» دوباره تلاش کنی.",
             reply_markup=study_search_again_keyboard(),
         )
         return
     body = [f"📘 نتیجه‌های درسی برای: {query}"]
     for i, (title, snippet) in enumerate(results, 1):
-        body.append(f"\\n{i}. {title}" + (f"\\n{snippet}" if snippet else ""))
-    body.append("\\n\\nاگر پاسخ کامل نبود، می‌توانی متن سؤال را بفرستی یا جستجوی دیگری انجام بدهی.")
+        body.append(f"\n{i}. {title}" + (f"\n{snippet}" if snippet else ""))
+    body.append("\n\nاگر پاسخ کامل نبود، می‌توانی متن سؤال را بفرستی یا جستجوی دیگری انجام بدهی.")
     await status.edit_text(
-        "\\n".join(body)[:4000],
+        "\n".join(body)[:4000],
         reply_markup=study_search_again_keyboard(),
         disable_web_page_preview=True,
     )
@@ -337,21 +337,21 @@ async def plain_text_handler(message: Message):
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
     await message.answer(
-        "📚 راهنمای پیشرفته درس‌یار\\n\\n"
-        "/ask سوال — توضیح مرحله‌ای (با کلید اختیاری هوش مصنوعی)\\n"
-        "/quiz — آزمون چهارگزینه‌ای فوری\\n"
-        "/exam — آزمون ۵ سؤالی با امتیاز نهایی\\n"
-        "/daily — چالش روزانه\\n"
-        "/flashcards [نام درس] — فلش‌کارت و خودسنجی\\n"
-        "/formula — برگه فرمول‌های مهم\\n"
-        "/vocab — تمرین واژگان انگلیسی\\n"
-        "/plan — برنامه پیشنهادی مطالعه\\n"
-        "/schedule 120 — برنامه‌ریزی برای زمان دلخواه (دقیقه)\\n"
-        "/focus — روش تمرکز ۲۵/۵ دقیقه‌ای\\n"
-        "/progress — گزارش پیشرفت یادگیری\\n"
-        "/resources — جستجوی کمک‌درسی داخل ربات\\n"
-        "/search عبارت — پیدا کردن نتیجه‌های درسی داخل ربات\\n"
-        "/privacy — اطلاعات حریم خصوصی\\n"
+        "📚 راهنمای پیشرفته درس‌یار\n\n"
+        "/ask سوال — توضیح مرحله‌ای (با کلید اختیاری هوش مصنوعی)\n"
+        "/quiz — آزمون چهارگزینه‌ای فوری\n"
+        "/exam — آزمون ۵ سؤالی با امتیاز نهایی\n"
+        "/daily — چالش روزانه\n"
+        "/flashcards [نام درس] — فلش‌کارت و خودسنجی\n"
+        "/formula — برگه فرمول‌های مهم\n"
+        "/vocab — تمرین واژگان انگلیسی\n"
+        "/plan — برنامه پیشنهادی مطالعه\n"
+        "/schedule 120 — برنامه‌ریزی برای زمان دلخواه (دقیقه)\n"
+        "/focus — روش تمرکز ۲۵/۵ دقیقه‌ای\n"
+        "/progress — گزارش پیشرفت یادگیری\n"
+        "/resources — جستجوی کمک‌درسی داخل ربات\n"
+        "/search عبارت — پیدا کردن نتیجه‌های درسی داخل ربات\n"
+        "/privacy — اطلاعات حریم خصوصی\n"
         "/stats — آمار ربات (فقط مدیر)"
     )
 
@@ -425,7 +425,7 @@ async def record_learning(user_id: int, field: str, correct: bool | None = None)
 async def send_daily(target):
     q_index = random.randrange(len(QUESTIONS))
     q = QUESTIONS[q_index]
-    await target.answer("🎯 چالش روز درس‌یار\\n\\n" + q["q"], reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+    await target.answer("🎯 چالش روز درس‌یار\n\n" + q["q"], reply_markup=InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=opt, callback_data=f"quiz:{q_index}:{i}")]
         for i, opt in enumerate(q["options"])
     ]))
@@ -453,7 +453,7 @@ async def send_exam_question(target, user_id: int):
         await target.answer("آزمون فعالی نیست؛ /exam را بزن.")
         return
     q = QUESTIONS[session["indices"][session["position"]]]
-    await target.answer(f"📝 آزمون • سؤال {session['position']+1}/5\\n\\n{q['q']}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+    await target.answer(f"📝 آزمون • سؤال {session['position']+1}/5\n\n{q['q']}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=opt, callback_data=f"exam:{session['position']}:{i}")]
         for i, opt in enumerate(q["options"])
     ]))
@@ -480,22 +480,22 @@ async def exam_answer(callback: CallbackQuery):
     if session["position"] >= len(session["indices"]):
         score = session["score"]
         del exam_sessions[user_id]
-        await callback.message.edit_text(f"🏁 آزمون تمام شد!\\nامتیاز: {score}/5 ({score*20}٪)\\n" + ("عالی بود! 🌟" if score >= 4 else "اشتباه‌ها فرصت یادگیری‌اند؛ دوباره تمرین کن 💪"))
+        await callback.message.edit_text(f"🏁 آزمون تمام شد!\nامتیاز: {score}/5 ({score*20}٪)\n" + ("عالی بود! 🌟" if score >= 4 else "اشتباه‌ها فرصت یادگیری‌اند؛ دوباره تمرین کن 💪"))
     else:
         nq = QUESTIONS[session["indices"][session["position"]]]
-        await callback.message.edit_text(f"📝 سؤال {session['position']+1}/5\\n\\n{nq['q']}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        await callback.message.edit_text(f"📝 سؤال {session['position']+1}/5\n\n{nq['q']}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=opt, callback_data=f"exam:{session['position']}:{i}")]
             for i, opt in enumerate(nq["options"])
         ]))
 
 @dp.message(Command("formula"))
 async def formula_cmd(message: Message):
-    await message.answer("📖 برگه فرمول‌های سریع\\n\\n" + "\\n".join(f"• {s} — {name}: {formula}" for s, name, formula in formulas))
+    await message.answer("📖 برگه فرمول‌های سریع\n\n" + "\n".join(f"• {s} — {name}: {formula}" for s, name, formula in formulas))
 
 @dp.message(Command("vocab"))
 async def vocab_cmd(message: Message):
     word, meaning, example = random.choice(vocab)
-    await message.answer(f"🇬🇧 واژه تمرینی: {word}\\nمعنی: {meaning}\\nمثال: {example}\\n\\nاول معنی را حدس بزن!")
+    await message.answer(f"🇬🇧 واژه تمرینی: {word}\nمعنی: {meaning}\nمثال: {example}\n\nاول معنی را حدس بزن!")
 
 @dp.message(Command("schedule"))
 async def schedule_cmd(message: Message):
@@ -515,11 +515,11 @@ async def schedule_cmd(message: Message):
             blocks.append(f"   ☕ {rest} دقیقه استراحت")
             remaining -= rest
         cycle += 1
-    await message.answer(f"🗓 برنامه {minutes} دقیقه‌ای\\n\\n" + "\\n".join(blocks) + "\\n\\nبرای هر بخش یک هدف مشخص تعیین کن.")
+    await message.answer(f"🗓 برنامه {minutes} دقیقه‌ای\n\n" + "\n".join(blocks) + "\n\nبرای هر بخش یک هدف مشخص تعیین کن.")
 
 @dp.message(Command("focus"))
 async def focus_cmd(message: Message):
-    await message.answer("⏱ روش تمرکز درس‌یار\\n\\n۱) ۲۵ دقیقه فقط یک کار و بدون اعلان\\n۲) ۵ دقیقه استراحت و کمی حرکت\\n۳) پس از ۴ چرخه، ۱۵ تا ۳۰ دقیقه استراحت طولانی‌تر\\n\\nاین فرمان تایمر زنده نیست؛ برنامه تمرکز را به تو می‌دهد.")
+    await message.answer("⏱ روش تمرکز درس‌یار\n\n۱) ۲۵ دقیقه فقط یک کار و بدون اعلان\n۲) ۵ دقیقه استراحت و کمی حرکت\n۳) پس از ۴ چرخه، ۱۵ تا ۳۰ دقیقه استراحت طولانی‌تر\n\nاین فرمان تایمر زنده نیست؛ برنامه تمرکز را به تو می‌دهد.")
 
 @dp.message(Command("progress"))
 async def progress_cmd(message: Message):
@@ -529,7 +529,7 @@ async def progress_cmd(message: Message):
         async with db.execute("SELECT quiz_answered, quiz_correct, cards_known, cards_review FROM learning_stats WHERE user_id=?", (user_id,)) as cur:
             answered, correct, known, review = await cur.fetchone()
     rate = round(correct * 100 / answered) if answered else 0
-    await message.answer(f"📈 پیشرفت تو\\n\\n🧠 پاسخ‌های آزمون: {answered}\\n✅ پاسخ درست: {correct} ({rate}٪)\\n🗂 کارت‌های بلدم: {known}\\n🔁 کارت‌های نیازمند مرور: {review}\\n\\nهر روز /daily و چند فلش‌کارت انجام بده.")
+    await message.answer(f"📈 پیشرفت تو\n\n🧠 پاسخ‌های آزمون: {answered}\n✅ پاسخ درست: {correct} ({rate}٪)\n🗂 کارت‌های بلدم: {known}\n🔁 کارت‌های نیازمند مرور: {review}\n\nهر روز /daily و چند فلش‌کارت انجام بده.")
 
 def card_categories():
     return sorted({card[0] for card in FLASHCARDS})
@@ -682,7 +682,7 @@ async def menu_callback(callback: CallbackQuery):
     action = callback.data.split(":")[1]
     if action == "quiz":
         q = random.choice(QUESTIONS)
-        await callback.message.answer("🧠 آزمون کوتاه\\n\\n" + q["q"], reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        await callback.message.answer("🧠 آزمون کوتاه\n\n" + q["q"], reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=opt, callback_data=f"quiz:{QUESTIONS.index(q)}:{i}")]
             for i, opt in enumerate(q["options"])
         ]))
@@ -713,9 +713,9 @@ async def menu_callback(callback: CallbackQuery):
                 answered, correct, known, review = await cur.fetchone()
         rate = round(correct * 100 / answered) if answered else 0
         await callback.message.answer(
-            f"📈 پیشرفت تو\\n\\n🧠 پاسخ‌های آزمون: {answered}\\n"
-            f"✅ پاسخ درست: {correct} ({rate}٪)\\n🗂 کارت‌های بلدم: {known}\\n"
-            f"🔁 کارت‌های نیازمند مرور: {review}\\n\\n"
+            f"📈 پیشرفت تو\n\n🧠 پاسخ‌های آزمون: {answered}\n"
+            f"✅ پاسخ درست: {correct} ({rate}٪)\n🗂 کارت‌های بلدم: {known}\n"
+            f"🔁 کارت‌های نیازمند مرور: {review}\n\n"
             "نکته: تمرین‌های منظم کوتاه معمولاً از یک جلسه‌ی فشرده‌ی طولانی بهترند.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🧠 تمرین آزمون", callback_data="menu:exam"),
@@ -725,7 +725,7 @@ async def menu_callback(callback: CallbackQuery):
         )
     elif action == "formula":
         await callback.message.answer(
-            "📖 برگه‌ی فرمول‌های سریع\\n\\n" + "\\n".join(
+            "📖 برگه‌ی فرمول‌های سریع\n\n" + "\n".join(
                 f"• {s} — {name}: {formula}" for s, name, formula in formulas
             ),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -735,7 +735,7 @@ async def menu_callback(callback: CallbackQuery):
     elif action == "vocab":
         word, meaning, example = random.choice(vocab)
         await callback.message.answer(
-            f"🇬🇧 واژه‌ی امروز: {word}\\nمعنی: {meaning}\\nمثال: {example}\\n\\n"
+            f"🇬🇧 واژه‌ی امروز: {word}\nمعنی: {meaning}\nمثال: {example}\n\n"
             "اول معنی را به یاد بسپار و بعد یک جمله با آن بساز.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔁 واژه‌ی بعدی", callback_data="menu:vocab")],
@@ -744,8 +744,8 @@ async def menu_callback(callback: CallbackQuery):
         )
     elif action == "focus":
         await callback.message.answer(
-            "⏱ روش تمرکز پیشنهادی\\n\\n۱) ۲۵ دقیقه فقط یک هدف مشخص.\\n"
-            "۲) ۵ دقیقه استراحت و کمی حرکت.\\n۳) پس از چهار دور، استراحت طولانی‌تر.\\n\\n"
+            "⏱ روش تمرکز پیشنهادی\n\n۱) ۲۵ دقیقه فقط یک هدف مشخص.\n"
+            "۲) ۵ دقیقه استراحت و کمی حرکت.\n۳) پس از چهار دور، استراحت طولانی‌تر.\n\n"
             "گوشی را بی‌صدا کن و قبل از شروع، نتیجه‌ای که می‌خواهی به دست بیاوری بنویس.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📅 برنامه مطالعه", callback_data="menu:plan")],
@@ -754,10 +754,10 @@ async def menu_callback(callback: CallbackQuery):
         )
     elif action == "plan":
         await callback.message.answer(
-            "📅 برنامه‌ی پیشنهادی ۹۰ دقیقه‌ای\\n\\n"
-            "۱) ۲۵ دقیقه: یادگیری یک مبحث کوچک\\n۲) ۵ دقیقه: استراحت\\n"
-            "۳) ۲۵ دقیقه: حل تمرین بدون نگاه به پاسخ\\n۴) ۵ دقیقه: استراحت\\n"
-            "۵) ۲۰ دقیقه: آزمون از خودت\\n۶) ۱۰ دقیقه: مرور اشتباه‌ها و نکته‌ها.",
+            "📅 برنامه‌ی پیشنهادی ۹۰ دقیقه‌ای\n\n"
+            "۱) ۲۵ دقیقه: یادگیری یک مبحث کوچک\n۲) ۵ دقیقه: استراحت\n"
+            "۳) ۲۵ دقیقه: حل تمرین بدون نگاه به پاسخ\n۴) ۵ دقیقه: استراحت\n"
+            "۵) ۲۰ دقیقه: آزمون از خودت\n۶) ۱۰ دقیقه: مرور اشتباه‌ها و نکته‌ها.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⏱ نکته‌های تمرکز", callback_data="menu:focus")],
                 [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")]
