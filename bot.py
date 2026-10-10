@@ -330,7 +330,7 @@ async def send_exam_question(target, user_id: int):
         return
     q = QUESTIONS[session["indices"][session["position"]]]
     await target.answer(f"📝 آزمون • سؤال {session['position']+1}/5\\n\\n{q['q']}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=opt, callback_data=f"exam:{i}")]
+        [InlineKeyboardButton(text=opt, callback_data=f"exam:{session['position']}:{i}")]
         for i, opt in enumerate(q["options"])
     ]))
 
@@ -343,7 +343,11 @@ async def exam_answer(callback: CallbackQuery):
         return
     idx = session["indices"][session["position"]]
     q = QUESTIONS[idx]
-    chosen = int(callback.data.split(":")[1])
+    _, question_position, chosen_value = callback.data.split(":")
+    if int(question_position) != session["position"]:
+        await callback.answer("این سؤال قبلاً پاسخ داده شده؛ سؤال فعلی را انتخاب کن.", show_alert=True)
+        return
+    chosen = int(chosen_value)
     correct = chosen == q["answer"]
     session["score"] += int(correct)
     await record_learning(user_id, "quiz", correct)
