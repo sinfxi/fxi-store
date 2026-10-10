@@ -16,19 +16,81 @@ DB_PATH = os.getenv("DB_PATH", "./data/studybot.db")
 log = logging.getLogger("darsyar.web")
 
 
+SESSION_COOKIE = "darsyar_session"
+LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+
+
+def _session_secret() -> str:
+    return os.getenv("WEB_SESSION_SECRET", "").strip()
+
+
+def _session_value(email: str, expires: int) -> str:
+    payload = f"{expires}:{email}"
+    signature = hmac.new(_session_secret().encode(), payload.encode(), "sha256").hexdigest()
+    return f"{payload}:{signature}"
+
+
 def _authorized(request: web.Request) -> bool:
-    expected = os.getenv("WEB_ADMIN_TOKEN", "").strip()
-    supplied = request.headers.get("Authorization", "")
-    if not expected or not supplied.startswith("Bearer "):
+    secret = _session_secret()
+    cookie = request.cookies.get(SESSION_COOKIE, "")
+    if not secret or not cookie:
         return False
-    return hmac.compare_digest(supplied[7:].strip(), expected)
+    try:
+        expires_raw, email, signature = cookie.split(":", 2)
+        expires = int(expires_raw)
+    except (ValueError, TypeError):
+        return False
+    if expires < int(__import__("time").time()):
+        return False
+    expected = hmac.new(secret.encode(), f"{expires}:{email}".encode(), "sha256").hexdigest()
+    return hmac.compare_digest(signature, expected) and hmac.compare_digest(
+        email.casefold(), os.getenv("WEB_ADMIN_EMAIL", "").strip().casefold()
+    )
 
 
 def _require_auth(request: web.Request):
-    if not os.getenv("WEB_ADMIN_TOKEN", "").strip():
-        raise web.HTTPServiceUnavailable(text="WEB_ADMIN_TOKEN is not configured.")
+    if not os.getenv("WEB_SESSION_SECRET", "").strip() or not os.getenv("WEB_ADMIN_EMAIL", "").strip() or not os.getenv("WEB_ADMIN_PASSWORD", ""):
+        raise web.HTTPServiceUnavailable(text="Web login is not configured.")
     if not _authorized(request):
-        raise web.HTTPUnauthorized(text="Authentication required.", headers={"WWW-Authenticate": "Bearer"})
+        raise web.HTTPUnauthorized(text="Authentication required.")
+
+
+async def login(request: web.Request):
+    if not all(os.getenv(key, "").strip() for key in ("WEB_ADMIN_EMAIL", "WEB_ADMIN_PASSWORD", "WEB_SESSION_SECRET")):
+        raise web.HTTPServiceUnavailable(text="Web login is not configured.")
+    remote = request.remote or "unknown"
+    now = __import__("time").time()
+    attempts = [stamp for stamp in LOGIN_ATTEMPTS.get(remote, []) if now - stamp < 600]
+    LOGIN_ATTEMPTS[remote] = attempts
+    if len(attempts) >= 8:
+        raise web.HTTPTooManyRequests(text="Too many login attempts. Try again in 10 minutes.")
+    try:
+        data = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(text="Expected JSON.")
+    email = str(data.get("email", "")).strip()[:254]
+    password = str(data.get("password", ""))[:1024]
+    correct_email = hmac.compare_digest(email.casefold(), os.getenv("WEB_ADMIN_EMAIL", "").strip().casefold())
+    correct_password = hmac.compare_digest(password, os.getenv("WEB_ADMIN_PASSWORD", ""))
+    if not (correct_email and correct_password):
+        attempts.append(now)
+        LOGIN_ATTEMPTS[remote] = attempts
+        raise web.HTTPUnauthorized(text="Email or password is incorrect.")
+    LOGIN_ATTEMPTS.pop(remote, None)
+    expires = int(now) + 8 * 60 * 60
+    response = web.json_response({"ok": True, "email": email})
+    response.set_cookie(
+        SESSION_COOKIE, _session_value(os.getenv("WEB_ADMIN_EMAIL", "").strip(), expires),
+        httponly=True, secure=(request.headers.get("X-Forwarded-Proto", "").lower() == "https" or request.secure),
+        samesite="Strict", max_age=8 * 60 * 60, path="/",
+    )
+    return response
+
+
+async def logout(request: web.Request):
+    response = web.json_response({"ok": True})
+    response.del_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="Strict")
+    return response
 
 
 HTML = r"""<!doctype html>
@@ -47,7 +109,7 @@ main{max-width:1180px;margin:auto;padding:28px 20px 60px}.top{display:flex;justi
 </style></head>
 <body><main>
 <header class="top"><div class="brand"><div class="logo">📘</div><div><div class="eyebrow">DARSYAR • CONTROL CENTER</div><h1>پنل مدیریت درس‌یار</h1><div class="muted">مرکز کنترل ربات و فعالیت‌های آموزشی</div></div></div><div class="status" id="health">● بررسی وضعیت سرویس…</div></header>
-<section id="login" class="card auth"><h2>ورود مدیر</h2><p class="muted">برای مشاهده اطلاعات کاربران و گزارش‌های یادگیری، کلید مدیریتی را وارد کن. این کلید فقط در همین نشست مرورگر نگه‌داری می‌شود.</p><div class="field"><input id="token" type="password" autocomplete="current-password" placeholder="کلید دسترسی مدیر"><button id="loginBtn">ورود امن</button></div><div id="loginError" class="error"></div><div class="notice" style="margin-top:18px">این صفحه رمز عبور تلگرام را درخواست نمی‌کند. کلید مدیریتی را با دیگران به اشتراک نگذار.</div></section>
+<section id="login" class="card auth"><h2>ورود به فضای مدیریت</h2><p class="muted">با ایمیل مدیر و رمز عبور اختصاصی درس‌یار وارد شو.</p><form id="loginForm"><div class="field" style="flex-direction:column"><label for="email">ایمیل مدیر</label><input id="email" type="email" autocomplete="username" required maxlength="254" placeholder="admin@darsyar.local"><label for="password">رمز عبور</label><input id="password" type="password" autocomplete="current-password" required maxlength="1024" placeholder="رمز عبور امن"><button id="loginBtn" type="submit">ورود امن به پنل</button></div></form><div id="loginError" class="error"></div><div class="notice" style="margin-top:18px">نشست ورود امن است و پس از ۸ ساعت منقضی می‌شود. اطلاعات ورود را با کسی به اشتراک نگذار.</div></section>
 <section id="app" class="hidden">
 <div class="section-head"><div><h2>نمای کلی</h2><div class="muted" id="updated">—</div></div><div class="tools"><button class="secondary" id="refresh">↻ به‌روزرسانی</button><button class="secondary" id="export">خروجی CSV</button><button class="secondary" id="logout">خروج</button></div></div>
 <div class="grid">
@@ -67,18 +129,17 @@ main{max-width:1180px;margin:auto;padding:28px 20px 60px}.top{display:flex;justi
 </main><div id="toast" class="toast hidden"></div>
 <script>
 const $=id=>document.getElementById(id);let page=0;const pageSize=20;let searchTerm="";
-function token(){return sessionStorage.getItem("darsyar_admin_token")||""}
-async function api(path,opts={}){const r=await fetch(path,{...opts,headers:{"Authorization":"Bearer "+token(),...(opts.headers||{})}});if(!r.ok){const t=await r.text();throw new Error(t||("HTTP "+r.status))}return r}
+async function api(path,opts={}){const r=await fetch(path,{credentials:"same-origin",...opts,headers:{...(opts.headers||{})}});if(!r.ok){const t=await r.text();throw new Error(t||("HTTP "+r.status))}return r}
 function fmt(n){return Number(n||0).toLocaleString("fa-IR")}
 function toast(t){$("toast").textContent=t;$("toast").classList.remove("hidden");setTimeout(()=>$("toast").classList.add("hidden"),3500)}
 async function health(){try{const d=await(await fetch("/health")).json();$("health").textContent=d.status==="ok"?"● سرویس فعال":"● وضعیت نامشخص"}catch{$("health").textContent="● سرویس در دسترس نیست"}}
-async function login(){const t=$("token").value.trim();if(!t){$("loginError").textContent="کلید را وارد کن.";return}sessionStorage.setItem("darsyar_admin_token",t);try{await api("/api/summary");$("login").classList.add("hidden");$("app").classList.remove("hidden");$("loginError").textContent="";await loadAll()}catch(e){sessionStorage.removeItem("darsyar_admin_token");$("loginError").textContent="ورود انجام نشد؛ کلید را بررسی کن."}}
-function logout(){sessionStorage.removeItem("darsyar_admin_token");$("app").classList.add("hidden");$("login").classList.remove("hidden");$("token").value=""}
+async function login(event){if(event)event.preventDefault();const email=$("email").value.trim();const password=$("password").value;if(!email||!password){$("loginError").textContent="ایمیل و رمز عبور را وارد کن.";return}const b=$("loginBtn");b.disabled=true;try{await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password})});$("password").value="";$("login").classList.add("hidden");$("app").classList.remove("hidden");$("loginError").textContent="";await loadAll()}catch(e){$("loginError").textContent="ورود انجام نشد؛ ایمیل و رمز عبور را بررسی کن."}finally{b.disabled=false}}
+async function logout(){try{await api("/api/logout",{method:"POST"})}catch{}$("app").classList.add("hidden");$("login").classList.remove("hidden");$("password").value=""}
 async function loadAll(){try{const d=await(await api("/api/summary")).json();$("mUsers").textContent=fmt(d.users);$("mInteractions").textContent=fmt(d.interactions);$("mMinutes").textContent=fmt(d.minutes);$("mQuiz").textContent=fmt(d.quiz_answered);$("mAccuracy").textContent="دقت پاسخ‌ها: "+fmt(d.accuracy)+"٪";$("mCards").textContent=fmt(d.flashcards);$("mSubjects").textContent=fmt(d.subjects);$("mDays").textContent=fmt(d.active_days);$("mProfiles").textContent=fmt(d.profiles);$("updated").textContent="آخرین به‌روزرسانی: "+new Date().toLocaleString("fa-IR");const max=Math.max(1,...d.week.map(x=>x.minutes));$("chart").replaceChildren(...d.week.map(x=>{const c=document.createElement("div");c.className="bar-col";const v=document.createElement("div");v.className="bar-val";v.textContent=fmt(x.minutes);const b=document.createElement("div");b.className="bar";b.style.height=Math.max(3,x.minutes/max*90)+"px";b.title=x.date+" — "+x.minutes+" دقیقه";const l=document.createElement("div");l.className="bar-label";l.textContent=x.label;c.append(v,b,l);return c}));await loadUsers()}catch(e){toast("خطا در دریافت گزارش‌ها: "+e.message);if(e.message.includes("Authentication"))logout()}}
 async function loadUsers(){const u=new URLSearchParams({limit:String(pageSize),offset:String(page*pageSize),search:searchTerm});const d=await(await api("/api/users?"+u)).json();const body=$("users");body.replaceChildren();for(const x of d.users){const tr=document.createElement("tr");[x.user_id,x.grade||"ثبت نشده",fmt(x.interactions),fmt(x.minutes),fmt(x.quiz_answered),x.accuracy+"٪",fmt(x.goal)+" دقیقه"].forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.append(td)});body.append(tr)}if(!d.users.length){const tr=document.createElement("tr"),td=document.createElement("td");td.colSpan=7;td.className="empty";td.textContent="کاربری با این جستجو پیدا نشد.";tr.append(td);body.append(tr)}$("userCount").textContent="نمایش "+fmt(d.total?Math.min(d.total,page*pageSize+1):0)+" تا "+fmt(Math.min(d.total,(page+1)*pageSize))+" از "+fmt(d.total)+" کاربر";$("prev").disabled=page===0;$("next").disabled=(page+1)*pageSize>=d.total}
 async function exportCsv(){try{const r=await api("/api/export.csv");const blob=await r.blob();const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="darsyar-users.csv";a.click();URL.revokeObjectURL(a.href);toast("خروجی CSV آماده شد.")}catch(e){toast("خروجی ناموفق بود: "+e.message)}}
 async function broadcast(){const msg=$("broadcastText").value.trim();if(msg.length<2){toast("پیام خیلی کوتاه است.");return}if(!confirm("پیام برای همهٔ کاربران ثبت‌شده ارسال شود؟ این کار قابل بازگشت نیست."))return;const b=$("broadcast");b.disabled=true;$("broadcastResult").textContent="در حال ارسال…";try{const d=await(await api("/api/broadcast",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:msg,confirm:true})})).json();$("broadcastResult").textContent="ارسال پایان یافت؛ موفق: "+fmt(d.sent)+"، ناموفق: "+fmt(d.failed);$("broadcastText").value="";toast("عملیات ارسال تمام شد.")}catch(e){$("broadcastResult").textContent="ارسال ناموفق بود: "+e.message}finally{b.disabled=false}}
-$("loginBtn").onclick=login;$("token").addEventListener("keydown",e=>{if(e.key==="Enter")login()});$("refresh").onclick=loadAll;$("logout").onclick=logout;$("export").onclick=exportCsv;$("searchBtn").onclick=()=>{page=0;searchTerm=$("search").value.trim();loadUsers()};$("search").addEventListener("keydown",e=>{if(e.key==="Enter")$("searchBtn").click()});$("prev").onclick=()=>{page=Math.max(0,page-1);loadUsers()};$("next").onclick=()=>{page++;loadUsers()};$("broadcast").onclick=broadcast;health();if(token()){$("token").value=token();login()}
+$("loginForm").addEventListener("submit",login);$("refresh").onclick=loadAll;$("logout").onclick=logout;$("export").onclick=exportCsv;$("searchBtn").onclick=()=>{page=0;searchTerm=$("search").value.trim();loadUsers()};$("search").addEventListener("keydown",e=>{if(e.key==="Enter")$("searchBtn").click()});$("prev").onclick=()=>{page=Math.max(0,page-1);loadUsers()};$("next").onclick=()=>{page++;loadUsers()};$("broadcast").onclick=broadcast;health()
 </script></body></html>"""
 
 
@@ -201,6 +262,8 @@ def create_web_app(bot: object, flashcards_count: int = 0, subject_count: int = 
     app.router.add_get("/health", health)
     app.router.add_get("/", dashboard)
     app.router.add_get("/dashboard", dashboard)
+    app.router.add_post("/api/login", login)
+    app.router.add_post("/api/logout", logout)
     app.router.add_get("/api/summary", summary)
     app.router.add_get("/api/users", users_list)
     app.router.add_get("/api/export.csv", export_csv)
