@@ -131,8 +131,10 @@ def main_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🧠 آزمون", callback_data="menu:quiz"),
          InlineKeyboardButton(text="🗂 فلش‌کارت", callback_data="menu:cards")],
-        [InlineKeyboardButton(text="📅 برنامه مطالعه", callback_data="menu:plan"),
-         InlineKeyboardButton(text="🔒 حریم خصوصی", callback_data="menu:privacy")],
+        [InlineKeyboardButton(text="🎯 چالش روز", callback_data="menu:daily"),
+         InlineKeyboardButton(text="📅 برنامه مطالعه", callback_data="menu:plan")],
+        [InlineKeyboardButton(text="📈 پیشرفت من", callback_data="menu:progress"),
+         InlineKeyboardButton(text="📖 فرمول‌ها", callback_data="menu:formula")],
     ])
 
 async def init_db():
@@ -140,6 +142,13 @@ async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY, interactions INTEGER NOT NULL DEFAULT 0
+        )""")
+        await db.execute("""CREATE TABLE IF NOT EXISTS learning_stats (
+            user_id INTEGER PRIMARY KEY,
+            quiz_answered INTEGER NOT NULL DEFAULT 0,
+            quiz_correct INTEGER NOT NULL DEFAULT 0,
+            cards_known INTEGER NOT NULL DEFAULT 0,
+            cards_review INTEGER NOT NULL DEFAULT 0
         )""")
         await db.commit()
 
@@ -206,14 +215,20 @@ async def start(message: Message):
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
     await message.answer(
-        "📚 راهنمای درس‌یار\n"
-        "/ask سوال درسی — توضیح مرحله‌ای (نیازمند کلید اختیاری هوش مصنوعی)\n"
-        "/quiz — آزمون چهارگزینه‌ای\n"
-        "/flashcards [نام درس] — فلش‌کارت موضوعی با پاسخ و خودسنجی\n"
-        "/plan — برنامه پیشنهادی مطالعه\n"
-        "/privacy — اطلاعات حریم خصوصی\n"
-        "/stats — آمار ربات (فقط مدیر)\n\n"
-        "برای نتیجه بهتر، درس، پایه و بخشی را که دشوار است بنویس."
+        "📚 راهنمای پیشرفته درس‌یار\\n\\n"
+        "/ask سوال — توضیح مرحله‌ای (با کلید اختیاری هوش مصنوعی)\\n"
+        "/quiz — آزمون چهارگزینه‌ای فوری\\n"
+        "/exam — آزمون ۵ سؤالی با امتیاز نهایی\\n"
+        "/daily — چالش روزانه\\n"
+        "/flashcards [نام درس] — فلش‌کارت و خودسنجی\\n"
+        "/formula — برگه فرمول‌های مهم\\n"
+        "/vocab — تمرین واژگان انگلیسی\\n"
+        "/plan — برنامه پیشنهادی مطالعه\\n"
+        "/schedule 120 — برنامه‌ریزی برای زمان دلخواه (دقیقه)\\n"
+        "/focus — روش تمرکز ۲۵/۵ دقیقه‌ای\\n"
+        "/progress — گزارش پیشرفت یادگیری\\n"
+        "/privacy — اطلاعات حریم خصوصی\\n"
+        "/stats — آمار ربات (فقط مدیر)"
     )
 
 @dp.message(Command("ask"))
@@ -244,11 +259,149 @@ async def quiz_answer(callback: CallbackQuery):
     _, q_index, chosen = callback.data.split(":")
     q = QUESTIONS[int(q_index)]
     correct = int(chosen) == q["answer"]
+    await record_learning(callback.from_user.id, "quiz", correct)
     await callback.answer("آفرین! پاسخ درست بود 🎉" if correct else "این بار نشد؛ با هم مرور کنیم.")
     await callback.message.edit_text(
         ("✅ درست است!" if correct else f"❌ پاسخ درست: {q['options'][q['answer']]}") +
         f"\n\n📘 توضیح: {q['why']}"
     )
+
+
+# --- Extra learning features ---
+exam_sessions: dict[int, dict] = {}
+vocab = [
+    ("achieve", "به دست آوردن", "She worked hard to achieve her goal."),
+    ("although", "اگرچه", "Although it was late, he kept studying."),
+    ("compare", "مقایسه کردن", "Compare the two answers carefully."),
+    ("improve", "بهبود دادن", "Daily practice can improve your English."),
+    ("environment", "محیط زیست / محیط", "We should protect the environment."),
+    ("knowledge", "دانش", "Knowledge grows when you ask questions."),
+    ("necessary", "ضروری", "Sleep is necessary for learning."),
+    ("solution", "راه‌حل", "Try to find a solution before checking the answer."),
+]
+formulas = [
+    ("ریاضی", "مساحت مستطیل", "طول × عرض"), ("ریاضی", "مساحت مثلث", "½ × قاعده × ارتفاع"),
+    ("ریاضی", "مساحت دایره", "πr²"), ("ریاضی", "محیط دایره", "2πr"),
+    ("ریاضی", "فیثاغورس", "a² + b² = c²"), ("فیزیک", "قانون دوم نیوتن", "F = ma"),
+    ("فیزیک", "سرعت متوسط", "مسافت کل ÷ زمان کل"), ("فیزیک", "چگالی", "جرم ÷ حجم"),
+    ("فیزیک", "توان", "کار ÷ زمان"), ("فیزیک", "قانون اهم", "V = IR"),
+    ("شیمی", "چگالی", "ρ = m/V"), ("حسابداری", "معادله اساسی", "دارایی = بدهی + حقوق مالکانه"),
+]
+async def record_learning(user_id: int, field: str, correct: bool | None = None):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("INSERT OR IGNORE INTO learning_stats(user_id) VALUES(?)", (user_id,))
+        if field == "quiz":
+            await db.execute("UPDATE learning_stats SET quiz_answered=quiz_answered+1, quiz_correct=quiz_correct+? WHERE user_id=?", (1 if correct else 0, user_id))
+        elif field == "known":
+            await db.execute("UPDATE learning_stats SET cards_known=cards_known+1 WHERE user_id=?", (user_id,))
+        elif field == "review":
+            await db.execute("UPDATE learning_stats SET cards_review=cards_review+1 WHERE user_id=?", (user_id,))
+        await db.commit()
+
+async def send_daily(target):
+    q_index = random.randrange(len(QUESTIONS))
+    q = QUESTIONS[q_index]
+    await target.answer("🎯 چالش روز درس‌یار\\n\\n" + q["q"], reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=opt, callback_data=f"quiz:{q_index}:{i}")]
+        for i, opt in enumerate(q["options"])
+    ]))
+
+@dp.message(Command("daily"))
+async def daily_cmd(message: Message):
+    await touch_user(message.from_user.id)
+    await send_daily(message)
+
+@dp.message(Command("challenge"))
+async def challenge_cmd(message: Message):
+    await send_daily(message)
+
+@dp.message(Command("exam"))
+async def exam_cmd(message: Message):
+    await touch_user(message.from_user.id)
+    user_id = message.from_user.id
+    indices = random.sample(range(len(QUESTIONS)), min(5, len(QUESTIONS)))
+    exam_sessions[user_id] = {"indices": indices, "position": 0, "score": 0}
+    await send_exam_question(message, user_id)
+
+async def send_exam_question(target, user_id: int):
+    session = exam_sessions.get(user_id)
+    if not session:
+        await target.answer("آزمون فعالی نیست؛ /exam را بزن.")
+        return
+    q = QUESTIONS[session["indices"][session["position"]]]
+    await target.answer(f"📝 آزمون • سؤال {session['position']+1}/5\\n\\n{q['q']}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=opt, callback_data=f"exam:{i}")]
+        for i, opt in enumerate(q["options"])
+    ]))
+
+@dp.callback_query(F.data.startswith("exam:"))
+async def exam_answer(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    session = exam_sessions.get(user_id)
+    if not session:
+        await callback.answer("آزمون تمام شده؛ برای شروع دوباره /exam را بزن.", show_alert=True)
+        return
+    idx = session["indices"][session["position"]]
+    q = QUESTIONS[idx]
+    chosen = int(callback.data.split(":")[1])
+    correct = chosen == q["answer"]
+    session["score"] += int(correct)
+    await record_learning(user_id, "quiz", correct)
+    await callback.answer("درست بود! 🎉" if correct else "پاسخ درست: " + q["options"][q["answer"]])
+    session["position"] += 1
+    if session["position"] >= len(session["indices"]):
+        score = session["score"]
+        del exam_sessions[user_id]
+        await callback.message.edit_text(f"🏁 آزمون تمام شد!\\nامتیاز: {score}/5 ({score*20}٪)\\n" + ("عالی بود! 🌟" if score >= 4 else "اشتباه‌ها فرصت یادگیری‌اند؛ دوباره تمرین کن 💪"))
+    else:
+        nq = QUESTIONS[session["indices"][session["position"]]]
+        await callback.message.edit_text(f"📝 سؤال {session['position']+1}/5\\n\\n{nq['q']}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=opt, callback_data=f"exam:{i}")]
+            for i, opt in enumerate(nq["options"])
+        ]))
+
+@dp.message(Command("formula"))
+async def formula_cmd(message: Message):
+    await message.answer("📖 برگه فرمول‌های سریع\\n\\n" + "\\n".join(f"• {s} — {name}: {formula}" for s, name, formula in formulas))
+
+@dp.message(Command("vocab"))
+async def vocab_cmd(message: Message):
+    word, meaning, example = random.choice(vocab)
+    await message.answer(f"🇬🇧 واژه تمرینی: {word}\\nمعنی: {meaning}\\nمثال: {example}\\n\\nاول معنی را حدس بزن!")
+
+@dp.message(Command("schedule"))
+async def schedule_cmd(message: Message):
+    raw = (message.text or "").partition(" ")[2].strip()
+    try:
+        minutes = int(raw) if raw else 90
+    except ValueError:
+        minutes = 90
+    minutes = max(20, min(minutes, 600))
+    blocks, remaining, cycle = [], minutes, 1
+    while remaining > 0:
+        study = min(25, remaining)
+        blocks.append(f"{cycle}. 📚 {study} دقیقه تمرکز")
+        remaining -= study
+        if remaining > 0:
+            rest = min(5, remaining)
+            blocks.append(f"   ☕ {rest} دقیقه استراحت")
+            remaining -= rest
+        cycle += 1
+    await message.answer(f"🗓 برنامه {minutes} دقیقه‌ای\\n\\n" + "\\n".join(blocks) + "\\n\\nبرای هر بخش یک هدف مشخص تعیین کن.")
+
+@dp.message(Command("focus"))
+async def focus_cmd(message: Message):
+    await message.answer("⏱ روش تمرکز درس‌یار\\n\\n۱) ۲۵ دقیقه فقط یک کار و بدون اعلان\\n۲) ۵ دقیقه استراحت و کمی حرکت\\n۳) پس از ۴ چرخه، ۱۵ تا ۳۰ دقیقه استراحت طولانی‌تر\\n\\nاین فرمان تایمر زنده نیست؛ برنامه تمرکز را به تو می‌دهد.")
+
+@dp.message(Command("progress"))
+async def progress_cmd(message: Message):
+    user_id = message.from_user.id
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("INSERT OR IGNORE INTO learning_stats(user_id) VALUES(?)", (user_id,))
+        async with db.execute("SELECT quiz_answered, quiz_correct, cards_known, cards_review FROM learning_stats WHERE user_id=?", (user_id,)) as cur:
+            answered, correct, known, review = await cur.fetchone()
+    rate = round(correct * 100 / answered) if answered else 0
+    await message.answer(f"📈 پیشرفت تو\\n\\n🧠 پاسخ‌های آزمون: {answered}\\n✅ پاسخ درست: {correct} ({rate}٪)\\n🗂 کارت‌های بلدم: {known}\\n🔁 کارت‌های نیازمند مرور: {review}\\n\\nهر روز /daily و چند فلش‌کارت انجام بده.")
 
 def card_categories():
     return sorted({card[0] for card in FLASHCARDS})
@@ -350,6 +503,7 @@ async def card_callback(callback: CallbackQuery):
         await callback.answer("پاسخ را با دقت بخوان")
         await callback.message.edit_text(format_card(idx, category, revealed=True), reply_markup=card_keyboard(idx, category, revealed=True))
     elif action in ("known", "again"):
+        await record_learning(callback.from_user.id, "known" if action == "known" else "review")
         await callback.answer("عالیه، خودسنجی انجام شد! ✅" if action == "known" else "این کارت را دوباره مرور کن 🔁")
         note = "\n\n✅ گفتی این کارت را بلدی." if action == "known" else "\n\n🔁 پیشنهاد: این کارت را در نوبت بعد زودتر مرور کن."
         await callback.message.edit_text(format_card(idx, category, revealed=True) + note, reply_markup=card_keyboard(idx, category, revealed=True))
@@ -401,6 +555,12 @@ async def menu_callback(callback: CallbackQuery):
         ]))
     elif action == "cards":
         await callback.message.answer("📚 یک درس انتخاب کن:", reply_markup=category_keyboard())
+    elif action == "daily":
+        await send_daily(callback.message)
+    elif action == "progress":
+        await callback.message.answer("برای گزارش پیشرفت /progress را بزن.")
+    elif action == "formula":
+        await callback.message.answer("برای دیدن فرمول‌ها /formula را بزن.")
     elif action == "plan":
         await callback.message.answer("برنامه: ۲۵ دقیقه مطالعه، ۵ دقیقه استراحت، ۲۵ دقیقه تمرین، ۵ دقیقه استراحت، ۲۰ دقیقه آزمون و ۱۰ دقیقه مرور.")
     else:
