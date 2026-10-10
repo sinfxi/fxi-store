@@ -39,7 +39,12 @@ async def init(app):
   await db.execute("CREATE TABLE IF NOT EXISTS web_student_notes(id INTEGER PRIMARY KEY AUTOINCREMENT,telegram_id INTEGER NOT NULL,note TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
   await db.execute("CREATE INDEX IF NOT EXISTS idx_student_notes_owner ON web_student_notes(telegram_id,id)")
   await db.commit()
- me=await app["bot"].get_me();app["bot_username"]=me.username or ""
+ app["bot_username"]=""
+ if hasattr(app["bot"],"get_me"):
+  try:
+   me=await app["bot"].get_me();app["bot_username"]=me.username or ""
+  except Exception:
+   app["bot_username"]=""
 async def page(_):return web.Response(text=HTML,content_type="text/html",charset="utf-8")
 async def start_login(req):
  name=req.app.get("bot_username","")
@@ -102,6 +107,8 @@ async def delete_note(req):
 async def logout(_):
  r=web.json_response({"ok":True});r.del_cookie(COOKIE,path="/",httponly=True,samesite="Strict");return r
 def setup_user_portal(app):
+ global DB_PATH
+ DB_PATH=app.get("db_path",DB_PATH)
  app.on_startup.append(init)
  app.router.add_get("/",page)
  app.router.add_post("/api/student/login/start",start_login)
