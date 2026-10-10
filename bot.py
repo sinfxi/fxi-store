@@ -26,7 +26,8 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 dp = Dispatcher()
 last_request: dict[int, float] = {}
-awaiting_study_search: set[int] = set()\nlast_tutor_question: dict[int, str] = {}
+awaiting_study_search: set[int] = set()
+last_tutor_question: dict[int, str] = {}
 openai_client = None
 
 QUESTIONS = [
