@@ -34,11 +34,42 @@ QUESTIONS = [
     {"q": "کسر ۱/۲ با کدام عدد اعشاری برابر است؟", "options": ["۰٫۲", "۰٫۵", "۱٫۲", "۲"], "answer": 1, "why": "یک تقسیم بر دو برابر با ۰٫۵ است."},
 ]
 FLASHCARDS = [
-    ("فتوسنتز چیست؟", "فرایندی که گیاه با کمک نور، آب و دی‌اکسیدکربن قند می‌سازد و اکسیژن آزاد می‌کند."),
-    ("میانگین حسابی چگونه محاسبه می‌شود؟", "مجموع داده‌ها را بر تعداد داده‌ها تقسیم می‌کنیم."),
-    ("اسم چیست؟", "واژه‌ای برای نامیدن انسان، جانور، چیز، مکان یا مفهوم."),
-    ("سرعت متوسط چیست؟", "مسافت طی‌شده تقسیم بر زمان صرف‌شده؛ در حرکت یکنواخت برابر مسافت بر زمان است."),
-    ("متمم یک زاویه چیست؟", "زاویه‌ای که مجموع آن با زاویه‌ی موردنظر ۹۰ درجه باشد."),
+    ("ریاضی", "میانگین حسابی چگونه محاسبه می‌شود؟", "مجموع داده‌ها را بر تعداد داده‌ها تقسیم می‌کنیم. مثال: میانگین ۲، ۴ و ۶ برابر ۴ است."),
+    ("ریاضی", "متمم یک زاویه چیست؟", "زاویه‌ای که مجموعش با زاویه‌ی موردنظر ۹۰ درجه باشد؛ متمم ۳۰ درجه، ۶۰ درجه است."),
+    ("ریاضی", "مکمل یک زاویه چیست؟", "زاویه‌ای که مجموعش با زاویه‌ی موردنظر ۱۸۰ درجه باشد؛ مکمل ۱۱۰ درجه، ۷۰ درجه است."),
+    ("ریاضی", "محیط مستطیل چگونه به دست می‌آید؟", "دو برابر مجموع طول و عرض: محیط = ۲ × (طول + عرض)."),
+    ("ریاضی", "مساحت مستطیل چیست؟", "طول × عرض؛ برای مستطیل ۵ در ۳، مساحت ۱۵ واحد مربع است."),
+    ("ریاضی", "عدد اول چیست؟", "عدد طبیعی بزرگ‌تر از ۱ که دقیقاً دو مقسوم‌علیه مثبت دارد: ۱ و خودش."),
+    ("ریاضی", "کسر ۳/۴ به اعشار چند است؟", "۳ تقسیم بر ۴ برابر ۰٫۷۵ است."),
+    ("ریاضی", "قانون توزیع‌پذیری چیست؟", "a(b+c)=ab+ac؛ مثال: ۳(۴+۲)=۳×۴+۳×۲=۱۸."),
+    ("ریاضی", "محیط دایره چگونه محاسبه می‌شود؟", "محیط = ۲πr یا πd؛ r شعاع و d قطر است."),
+    ("ریاضی", "توان دوم یک عدد یعنی چه؟", "عدد را در خودش ضرب کنیم؛ مثلاً ۵²=۵×۵=۲۵."),
+    ("علوم", "فتوسنتز چیست؟", "گیاه با استفاده از نور، آب و دی‌اکسیدکربن مواد قندی می‌سازد و اکسیژن آزاد می‌کند."),
+    ("علوم", "وظیفه‌ی ریشه‌ی گیاه چیست؟", "گیاه را در خاک نگه می‌دارد و آب و مواد معدنی را جذب می‌کند."),
+    ("علوم", "واحد نیرو در SI چیست؟", "نیوتن (N). نیرو می‌تواند حرکت یا شکل جسم را تغییر دهد."),
+    ("علوم", "تفاوت جرم و وزن چیست؟", "جرم مقدار ماده و معمولاً بر حسب کیلوگرم است؛ وزن نیروی گرانش وارد بر جسم و بر حسب نیوتن است."),
+    ("علوم", "تبخیر چیست؟", "تبدیل مایع به گاز از سطح مایع؛ این فرایند می‌تواند در دماهای مختلف رخ دهد."),
+    ("علوم", "چرا فصل‌ها به وجود می‌آیند؟", "به‌دلیل کج بودن محور زمین و گردش زمین به دور خورشید، زاویه و مدت تابش خورشید در نیم‌کره‌ها تغییر می‌کند."),
+    ("علوم", "اتم از چه بخش‌هایی تشکیل شده است؟", "هسته شامل پروتون و نوترون است و الکترون‌ها در ناحیه‌ی پیرامون هسته قرار دارند."),
+    ("علوم", "تغییر فیزیکی چیست؟", "تغییری که در آن ماده‌ی جدیدی ساخته نمی‌شود؛ مانند ذوب شدن یخ."),
+    ("علوم", "تغییر شیمیایی چیست؟", "تغییری که ماده یا مواد جدید تولید می‌شوند؛ مانند زنگ‌زدن آهن."),
+    ("علوم", "سرعت متوسط چیست؟", "مسافت طی‌شده تقسیم بر زمان سپری‌شده؛ واحد رایج آن متر بر ثانیه یا کیلومتر بر ساعت است."),
+    ("فارسی", "اسم چیست؟", "واژه‌ای برای نامیدن انسان، جانور، چیز، مکان یا مفهوم؛ مانند دانش‌آموز، گربه و دوستی."),
+    ("فارسی", "فعل چه چیزی را نشان می‌دهد؟", "انجام کار یا رخ دادن حالت را بیان می‌کند و معمولاً زمان و شخص هم دارد."),
+    ("فارسی", "صفت چیست؟", "واژه‌ای که ویژگی یا چگونگی اسم را بیان می‌کند؛ مانند گلِ زیبا."),
+    ("فارسی", "مترادف یعنی چه؟", "واژه‌هایی با معنی یکسان یا نزدیک؛ مانند شاد و خوشحال."),
+    ("فارسی", "متضاد یعنی چه؟", "واژه‌هایی با معنی مخالف؛ مانند روشن و تاریک."),
+    ("فارسی", "نهاد جمله چیست؟", "بخشی که درباره‌اش خبری می‌دهیم یا انجام‌دهنده‌ی کار است؛ در «سارا کتاب خواند»، سارا نهاد است."),
+    ("انگلیسی", "معنی usually چیست؟", "معمولاً؛ برای بیان کاری که اغلب اتفاق می‌افتد به کار می‌رود."),
+    ("انگلیسی", "گذشته‌ی فعل go چیست؟", "went؛ مثال: I went to school yesterday."),
+    ("انگلیسی", "جمع book چیست؟", "books؛ معمولاً برای جمع بستن اسم‌های قابل‌شمارش باقاعده، s اضافه می‌کنیم."),
+    ("انگلیسی", "معنی because چیست؟", "زیرا / چون؛ برای بیان دلیل استفاده می‌شود."),
+    ("مطالعه", "مرور فعال چیست؟", "به‌جای دوباره‌خوانی صرف، کتاب را ببند و پاسخ را از حافظه به یاد بیاور؛ سپس بررسی کن."),
+    ("مطالعه", "مرور فاصله‌دار چیست؟", "مرور مطلب در چند نوبت با فاصله‌ی زمانی؛ مثلاً همان روز، فردا و چند روز بعد."),
+    ("مطالعه", "وقتی پاسخ را بلد نیستم چه کنم؟", "پاسخ را ببین، با زبان خودت توضیح بده و کارت را زودتر دوباره مرور کن."),
+    ("مطالعه", "روش پومودورو چیست؟", "یک بازه‌ی تمرکز کوتاه، مثلاً ۲۵ دقیقه، سپس استراحت ۵ دقیقه‌ای؛ زمان را با توجه به نیازت تنظیم کن."),
+    ("مطالعه", "چطور برای امتحان آماده شوم؟", "مباحث را خرد کن، از خودت آزمون بگیر، اشتباه‌ها را ثبت کن و مرورها را در چند روز پخش کن."),
+    ("مطالعه", "چرا خواب برای یادگیری مهم است؟", "خواب کافی به توجه و تثبیت حافظه کمک می‌کند؛ شب امتحان را با بی‌خوابی طولانی جایگزین نکن."),
 ]
 
 def main_keyboard():
@@ -123,7 +154,7 @@ async def help_cmd(message: Message):
         "📚 راهنمای درس‌یار\n"
         "/ask سوال درسی — توضیح مرحله‌ای (نیازمند کلید اختیاری هوش مصنوعی)\n"
         "/quiz — آزمون چهارگزینه‌ای\n"
-        "/flashcards — فلش‌کارت‌های مرور\n"
+        "/flashcards — فلش‌کارت‌های موضوعی با پاسخ و خودسنجی\n"
         "/plan — برنامه پیشنهادی مطالعه\n"
         "/privacy — اطلاعات حریم خصوصی\n"
         "/stats — آمار ربات (فقط مدیر)\n\n"
@@ -164,38 +195,48 @@ async def quiz_answer(callback: CallbackQuery):
         f"\n\n📘 توضیح: {q['why']}"
     )
 
+def card_keyboard(idx: int, revealed: bool = False):
+    category, front, _ = FLASHCARDS[idx]
+    if not revealed:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👀 نمایش پاسخ", callback_data=f"card:show:{idx}")],
+            [InlineKeyboardButton(text="➡️ کارت بعدی", callback_data=f"card:next:{idx}")],
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ بلدم", callback_data=f"card:known:{idx}"),
+         InlineKeyboardButton(text="🔁 دوباره مرور کنم", callback_data=f"card:again:{idx}")],
+        [InlineKeyboardButton(text="➡️ کارت بعدی", callback_data=f"card:next:{idx}")],
+    ])
+
+def format_card(idx: int, revealed: bool = False):
+    category, front, back = FLASHCARDS[idx]
+    header = f"🗂 فلش‌کارت {idx + 1}/{len(FLASHCARDS)} • {category}"
+    return header + "\n\n" + front + (f"\n\n💡 پاسخ:\n{back}" if revealed else "")
+
 @dp.message(Command("flashcards"))
 async def cards_cmd(message: Message):
     await touch_user(message.from_user.id)
-    front, back = random.choice(FLASHCARDS)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👀 نمایش پاسخ", callback_data="card:show:" + str(FLASHCARDS.index((front, back))))],
-        [InlineKeyboardButton(text="🔄 کارت بعدی", callback_data="card:next")],
-    ])
-    await message.answer("🗂 فلش‌کارت\n\n" + front, reply_markup=keyboard)
+    idx = random.randrange(len(FLASHCARDS))
+    await message.answer(format_card(idx), reply_markup=card_keyboard(idx))
 
 @dp.callback_query(F.data.startswith("card:"))
 async def card_callback(callback: CallbackQuery):
     parts = callback.data.split(":")
-    await callback.answer()
-    if parts[1] == "next":
-        front, _ = random.choice(FLASHCARDS)
-        idx = next(i for i, card in enumerate(FLASHCARDS) if card[0] == front)
+    action = parts[1]
+    idx = int(parts[2]) if len(parts) > 2 else random.randrange(len(FLASHCARDS))
+    if action == "next":
+        choices = [i for i in range(len(FLASHCARDS)) if i != idx]
+        idx = random.choice(choices) if choices else 0
+        await callback.answer("کارت بعدی آماده شد")
+        await callback.message.edit_text(format_card(idx), reply_markup=card_keyboard(idx))
+    elif action == "show":
+        await callback.answer("پاسخ را با دقت بخوان")
+        await callback.message.edit_text(format_card(idx, revealed=True), reply_markup=card_keyboard(idx, revealed=True))
+    elif action in ("known", "again"):
+        await callback.answer("آفرین، ثبت شد! ✅" if action == "known" else "باشه، این کارت را دوباره مرور کن 🔁")
         await callback.message.edit_text(
-            "🗂 فلش‌کارت\n\n" + front,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="👀 نمایش پاسخ", callback_data=f"card:show:{idx}")],
-                [InlineKeyboardButton(text="🔄 کارت بعدی", callback_data="card:next")],
-            ])
-        )
-    else:
-        idx = int(parts[2])
-        front, back = FLASHCARDS[idx]
-        await callback.message.edit_text(
-            f"🗂 {front}\n\n💡 {back}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔄 کارت بعدی", callback_data="card:next")]
-            ])
+            format_card(idx, revealed=True) + ("\n\n✅ خودت گفتی این را بلدی." if action == "known" else "\n\n🔁 این کارت را در نوبت بعد دوباره ببین."),
+            reply_markup=card_keyboard(idx, revealed=True),
         )
 
 @dp.message(Command("plan"))
@@ -244,12 +285,8 @@ async def menu_callback(callback: CallbackQuery):
             for i, opt in enumerate(q["options"])
         ]))
     elif action == "cards":
-        front, _ = random.choice(FLASHCARDS)
-        idx = next(i for i, card in enumerate(FLASHCARDS) if card[0] == front)
-        await callback.message.answer("🗂 " + front, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="👀 نمایش پاسخ", callback_data=f"card:show:{idx}")],
-            [InlineKeyboardButton(text="🔄 کارت بعدی", callback_data="card:next")],
-        ]))
+        idx = random.randrange(len(FLASHCARDS))
+        await callback.message.answer(format_card(idx), reply_markup=card_keyboard(idx))
     elif action == "plan":
         await callback.message.answer("برنامه: ۲۵ دقیقه مطالعه، ۵ دقیقه استراحت، ۲۵ دقیقه تمرین، ۵ دقیقه استراحت، ۲۰ دقیقه آزمون و ۱۰ دقیقه مرور.")
     else:
