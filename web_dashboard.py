@@ -260,7 +260,7 @@ def create_web_app(bot: object, flashcards_count: int = 0, subject_count: int = 
     app["flashcards_count"] = flashcards_count
     app["subject_count"] = subject_count
     app.router.add_get("/health", health)
-    app.router.add_get("/admin", dashboard)
+    app.router.add_get("/", dashboard)
     app.router.add_get("/dashboard", dashboard)
     app.router.add_post("/api/login", login)
     app.router.add_post("/api/logout", logout)
