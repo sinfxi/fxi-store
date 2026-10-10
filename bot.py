@@ -133,7 +133,8 @@ FLASHCARDS = [
 ]
 
 from flashcard_quality import deduplicate_cards
-FLASHCARDS = deduplicate_cards(FLASHCARDS)
+from flashcards_extra import EXTRA_FLASHCARDS
+FLASHCARDS = deduplicate_cards(FLASHCARDS + EXTRA_FLASHCARDS)
 
 def main_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
