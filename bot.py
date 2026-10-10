@@ -8,6 +8,7 @@ from pathlib import Path
 import aiosqlite
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
 
@@ -510,7 +511,11 @@ async def card_callback(callback: CallbackQuery):
         await record_learning(callback.from_user.id, "known" if action == "known" else "review")
         await callback.answer("عالیه، خودسنجی انجام شد! ✅" if action == "known" else "این کارت را دوباره مرور کن 🔁")
         note = "\n\n✅ گفتی این کارت را بلدی." if action == "known" else "\n\n🔁 پیشنهاد: این کارت را در نوبت بعد زودتر مرور کن."
-        await callback.message.edit_text(format_card(idx, category, revealed=True) + note, reply_markup=card_keyboard(idx, category, revealed=True))
+        try:
+            await callback.message.edit_text(format_card(idx, category, revealed=True) + note, reply_markup=card_keyboard(idx, category, revealed=True))
+        except TelegramBadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                raise
 
 @dp.message(Command("plan"))
 async def plan_cmd(message: Message):
