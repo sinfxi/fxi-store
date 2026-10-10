@@ -1307,10 +1307,23 @@ async def main():
         raise RuntimeError("BOT_TOKEN is missing. Set it in Railway Variables or .env.")
     await init_db()
     bot = Bot(token=BOT_TOKEN)
+
+    # The dashboard shares the bot's persistent SQLite database and runs in the same
+    # process, so Railway still has exactly one Telegram polling replica.
+    from aiohttp import web
+    from web_dashboard import create_web_app
+    app = create_web_app(bot, flashcards_count=len(FLASHCARDS), subject_count=len(card_categories()))
+    runner = web.AppRunner(app, access_log=None)
+    await runner.setup()
+    port = int(os.getenv("PORT", "8080"))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    log.info("DarsYar web dashboard listening on port %s", port)
     log.info("Starting DarsYar polling bot")
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        await runner.cleanup()
         await bot.session.close()
 
 if __name__ == "__main__":
