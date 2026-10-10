@@ -131,6 +131,10 @@ FLASHCARDS = [
     ("مطالعه", "وقتی پاسخ فلش‌کارت را بلد نیستم چه کنم؟", "پاسخ را بخوان، با زبان خودت توضیح بده و کارت را در نوبت نزدیک‌تری دوباره مرور کن."),
     ("مطالعه", "روش پومودورو چیست؟", "الگوی رایج: ۲۵ دقیقه تمرکز و ۵ دقیقه استراحت؛ آن را متناسب با نیازت تنظیم کن."),
 ]
+
+from flashcard_quality import deduplicate_cards
+FLASHCARDS = deduplicate_cards(FLASHCARDS)
+
 def main_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🤖 معلم هوشمند", callback_data="menu:tutor"),
