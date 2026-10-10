@@ -3,6 +3,7 @@ import logging
 import os
 import random
 import time
+from urllib.parse import quote_plus
 from pathlib import Path
 
 import aiosqlite
@@ -134,6 +135,8 @@ def main_keyboard():
          InlineKeyboardButton(text="🗂 فلش‌کارت", callback_data="menu:cards")],
         [InlineKeyboardButton(text="🎯 چالش روز", callback_data="menu:daily"),
          InlineKeyboardButton(text="📅 برنامه مطالعه", callback_data="menu:plan")],
+        [InlineKeyboardButton(text="🌐 منابع کمک‌درسی", callback_data="menu:resources"),
+         InlineKeyboardButton(text="🔎 جستجوی درسی", callback_data="menu:search")],
         [InlineKeyboardButton(text="📈 پیشرفت من", callback_data="menu:progress"),
          InlineKeyboardButton(text="📖 فرمول‌ها", callback_data="menu:formula")],
     ])
@@ -213,6 +216,43 @@ async def start(message: Message):
         reply_markup=main_keyboard(),
     )
 
+RESOURCE_SITES = [
+    ("📚 همیاربوک", "https://hamyarbook.ir/"),
+    ("📘 آسان‌درس", "https://asan-dars.ir/"),
+    ("📝 گاما", "https://gama.ir/"),
+]
+
+def resources_keyboard(query: str | None = None):
+    rows = [[InlineKeyboardButton(text=name, url=url)] for name, url in RESOURCE_SITES]
+    if query:
+        q = quote_plus(query)
+        rows.append([InlineKeyboardButton(text="🔎 جستجوی وب", url=f"https://www.google.com/search?q={q}")])
+        for name, domain in [("جستجو در همیاربوک", "hamyarbook.ir"), ("جستجو در آسان‌درس", "asan-dars.ir"), ("جستجو در گاما", "gama.ir")]:
+            rows.append([InlineKeyboardButton(text=f"🌐 {name}", url=f"https://www.google.com/search?q={quote_plus('site:' + domain + ' ' + query)}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+@dp.message(Command("resources"))
+async def resources_cmd(message: Message):
+    await message.answer(
+        "🌐 درگاه منابع کمک‌درسی فارسی\\n\\n"
+        "از اینجا می‌توانی به سایت‌های دارای گام‌به‌گام، جزوه، ویدئو و نمونه‌سؤال بروی. "
+        "این نسخه لینک‌ها و جستجوی منابع را فراهم می‌کند؛ اتصال API اختصاصی یا انتقال خودکار محتوای سایت‌ها فعال نیست.",
+        reply_markup=resources_keyboard(),
+        disable_web_page_preview=True,
+    )
+
+@dp.message(Command("search"))
+async def resource_search_cmd(message: Message):
+    query = (message.text or "").partition(" ")[2].strip()
+    if not query:
+        await message.answer("موضوع، درس یا عبارت موردنظرت را بنویس:\\n/search جواب تمرین صفحه ۳۲ علوم هشتم")
+        return
+    await message.answer(
+        f"🔎 منابع برای: {query}\\n\\nسایت‌های زیر را جستجو کن. نتیجه‌ها از خود سایت‌ها/موتور جستجو باز می‌شوند و ممکن است بعضی محتواها نیاز به عضویت داشته باشند.",
+        reply_markup=resources_keyboard(query),
+        disable_web_page_preview=True,
+    )
+
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
     await message.answer(
@@ -228,6 +268,8 @@ async def help_cmd(message: Message):
         "/schedule 120 — برنامه‌ریزی برای زمان دلخواه (دقیقه)\\n"
         "/focus — روش تمرکز ۲۵/۵ دقیقه‌ای\\n"
         "/progress — گزارش پیشرفت یادگیری\\n"
+        "/resources — سایت‌های کمک‌درسی ایرانی\\n"
+        "/search عبارت — جستجوی درس و نمونه‌سؤال در وب\\n"
         "/privacy — اطلاعات حریم خصوصی\\n"
         "/stats — آمار ربات (فقط مدیر)"
     )
@@ -564,6 +606,10 @@ async def menu_callback(callback: CallbackQuery):
         ]))
     elif action == "cards":
         await callback.message.answer("📚 یک درس انتخاب کن:", reply_markup=category_keyboard())
+    elif action == "resources":
+        await callback.message.answer("🌐 منابع کمک‌درسی ایرانی:", reply_markup=resources_keyboard(), disable_web_page_preview=True)
+    elif action == "search":
+        await callback.message.answer("برای جستجوی موضوع، این قالب را بفرست:\\n/search جواب تمرین صفحه ۳۲ علوم هشتم")
     elif action == "daily":
         await send_daily(callback.message)
     elif action == "progress":
