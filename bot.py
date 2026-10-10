@@ -152,6 +152,7 @@ def main_keyboard():
          InlineKeyboardButton(text="📖 فرمول‌ها", callback_data="menu:formula")],
         [InlineKeyboardButton(text="🇬🇧 واژه انگلیسی", callback_data="menu:vocab"),
          InlineKeyboardButton(text="⏱ تمرکز", callback_data="menu:focus")],
+        [InlineKeyboardButton(text="🌐 پنل وب درس‌یار", url="https://darsyar-study-bot-production.up.railway.app/")],
     ])
 
 async def init_db():
