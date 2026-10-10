@@ -135,7 +135,7 @@ def main_keyboard():
          InlineKeyboardButton(text="🗂 فلش‌کارت", callback_data="menu:cards")],
         [InlineKeyboardButton(text="🎯 چالش روز", callback_data="menu:daily"),
          InlineKeyboardButton(text="📅 برنامه مطالعه", callback_data="menu:plan")],
-        [InlineKeyboardButton(text="🌐 منابع کمک‌درسی", callback_data="menu:resources"),
+        [InlineKeyboardButton(text="📘 کمک‌درسی", callback_data="menu:resources"),
          InlineKeyboardButton(text="🔎 جستجوی درسی", callback_data="menu:search")],
         [InlineKeyboardButton(text="📈 پیشرفت من", callback_data="menu:progress"),
          InlineKeyboardButton(text="📖 فرمول‌ها", callback_data="menu:formula")],
@@ -216,42 +216,69 @@ async def start(message: Message):
         reply_markup=main_keyboard(),
     )
 
-RESOURCE_SITES = [
-    ("📚 همیاربوک", "https://hamyarbook.ir/"),
-    ("📘 آسان‌درس", "https://asan-dars.ir/"),
-    ("📝 گاما", "https://gama.ir/"),
-]
+async def find_study_results(query: str):
+    """Search study-help pages server-side and return readable snippets inside Telegram."""
+    import aiohttp
+    from bs4 import BeautifulSoup
 
-def resources_keyboard(query: str | None = None):
-    rows = [[InlineKeyboardButton(text=name, url=url)] for name, url in RESOURCE_SITES]
-    if query:
-        q = quote_plus(query)
-        rows.append([InlineKeyboardButton(text="🔎 جستجوی وب", url=f"https://www.google.com/search?q={q}")])
-        for name, domain in [("جستجو در همیاربوک", "hamyarbook.ir"), ("جستجو در آسان‌درس", "asan-dars.ir"), ("جستجو در گاما", "gama.ir")]:
-            rows.append([InlineKeyboardButton(text=f"🌐 {name}", url=f"https://www.google.com/search?q={quote_plus('site:' + domain + ' ' + query)}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    search_query = f"({query}) (site:hamyarbook.ir OR site:asan-dars.ir OR site:gama.ir)"
+    url = "https://html.duckduckgo.com/html/?q=" + quote_plus(search_query)
+    timeout = aiohttp.ClientTimeout(total=12)
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; DarsYarStudyBot/1.0)"}
+    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+        async with session.get(url, allow_redirects=True) as response:
+            response.raise_for_status()
+            html = await response.text()
+    soup = BeautifulSoup(html, "html.parser")
+    results = []
+    for item in soup.select(".result"):
+        title_el = item.select_one(".result__title")
+        snippet_el = item.select_one(".result__snippet")
+        if not title_el:
+            continue
+        title = " ".join(title_el.get_text(" ", strip=True).split())
+        snippet = " ".join(snippet_el.get_text(" ", strip=True).split()) if snippet_el else ""
+        if title:
+            results.append((title[:180], snippet[:500]))
+        if len(results) >= 5:
+            break
+    return results
 
 @dp.message(Command("resources"))
 async def resources_cmd(message: Message):
     await message.answer(
-        "🌐 درگاه منابع کمک‌درسی فارسی\\n\\n"
-        "از اینجا می‌توانی به سایت‌های دارای گام‌به‌گام، جزوه، ویدئو و نمونه‌سؤال بروی. "
-        "این نسخه لینک‌ها و جستجوی منابع را فراهم می‌کند؛ اتصال API اختصاصی یا انتقال خودکار محتوای سایت‌ها فعال نیست.",
-        reply_markup=resources_keyboard(),
-        disable_web_page_preview=True,
+        "📘 کمک‌درسی\\n\\n"
+        "موضوع یا سؤال درسی‌ات را همین‌جا بفرست؛ نتیجه‌ها داخل ربات نمایش داده می‌شوند و لازم نیست از تلگرام خارج شوی.\\n"
+        "مثال: /search جواب تمرین صفحه ۳۲ علوم هشتم"
     )
 
 @dp.message(Command("search"))
 async def resource_search_cmd(message: Message):
     query = (message.text or "").partition(" ")[2].strip()
     if not query:
-        await message.answer("موضوع، درس یا عبارت موردنظرت را بنویس:\\n/search جواب تمرین صفحه ۳۲ علوم هشتم")
+        await message.answer("سؤال یا موضوع درسی را بنویس:\\n/search جواب تمرین صفحه ۳۲ علوم هشتم")
         return
-    await message.answer(
-        f"🔎 منابع برای: {query}\\n\\nسایت‌های زیر را جستجو کن. نتیجه‌ها از خود سایت‌ها/موتور جستجو باز می‌شوند و ممکن است بعضی محتواها نیاز به عضویت داشته باشند.",
-        reply_markup=resources_keyboard(query),
-        disable_web_page_preview=True,
-    )
+    status = await message.answer("🔎 دارم جواب‌ها و تمرین‌های مرتبط را پیدا می‌کنم…")
+    try:
+        results = await find_study_results(query)
+    except Exception as exc:
+        log.warning("Study search failed: %s", type(exc).__name__)
+        await status.edit_text(
+            "الان جستجوی آنلاین در دسترس نیست. کمی بعد دوباره امتحان کن یا سؤال را با /ask بفرست."
+        )
+        return
+    if not results:
+        await status.edit_text(
+            f"برای «{query}» نتیجه‌ی مناسبی پیدا نکردم.\\n\\n"
+            "نام درس، پایه، شماره صفحه یا متن سؤال را دقیق‌تر بفرست؛ یا از /ask برای توضیح استفاده کن."
+        )
+        return
+    body = [f"📘 نتیجه‌های درسی برای: {query}"]
+    for i, (title, snippet) in enumerate(results, 1):
+        body.append(f"\\n{i}. {title}" + (f"\\n{snippet}" if snippet else ""))
+    body.append("\\n\\nاگر پاسخ کامل نبود، متن یا عکس سؤال را بفرست تا داخل ربات مرحله‌به‌مرحله حلش کنم.")
+    text_out = "\\n".join(body)
+    await status.edit_text(text_out[:4000], disable_web_page_preview=True)
 
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
@@ -268,8 +295,8 @@ async def help_cmd(message: Message):
         "/schedule 120 — برنامه‌ریزی برای زمان دلخواه (دقیقه)\\n"
         "/focus — روش تمرکز ۲۵/۵ دقیقه‌ای\\n"
         "/progress — گزارش پیشرفت یادگیری\\n"
-        "/resources — سایت‌های کمک‌درسی ایرانی\\n"
-        "/search عبارت — جستجوی درس و نمونه‌سؤال در وب\\n"
+        "/resources — جستجوی کمک‌درسی داخل ربات\\n"
+        "/search عبارت — پیدا کردن نتیجه‌های درسی داخل ربات\\n"
         "/privacy — اطلاعات حریم خصوصی\\n"
         "/stats — آمار ربات (فقط مدیر)"
     )
@@ -607,7 +634,7 @@ async def menu_callback(callback: CallbackQuery):
     elif action == "cards":
         await callback.message.answer("📚 یک درس انتخاب کن:", reply_markup=category_keyboard())
     elif action == "resources":
-        await callback.message.answer("🌐 منابع کمک‌درسی ایرانی:", reply_markup=resources_keyboard(), disable_web_page_preview=True)
+        await callback.message.answer("📘 کمک‌درسی\\n\\nموضوع یا سؤال درسی را همین‌جا بفرست؛ نتیجه‌ها داخل ربات نمایش داده می‌شوند.\\nمثال: /search جواب تمرین صفحه ۳۲ علوم هشتم")
     elif action == "search":
         await callback.message.answer("برای جستجوی موضوع، این قالب را بفرست:\\n/search جواب تمرین صفحه ۳۲ علوم هشتم")
     elif action == "daily":
