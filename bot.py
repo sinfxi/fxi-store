@@ -12,6 +12,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
+from study_engine import ensure_study_schema, mark_activity, save_card_review, user_dashboard, update_goal, update_profile, due_card
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -166,6 +167,7 @@ async def init_db():
             cards_review INTEGER NOT NULL DEFAULT 0
         )""")
         await db.commit()
+    await ensure_study_schema()
 
 async def touch_user(user_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -432,6 +434,7 @@ formulas = [
     ("شیمی", "چگالی", "ρ = m/V"), ("حسابداری", "معادله اساسی", "دارایی = بدهی + حقوق مالکانه"),
 ]
 async def record_learning(user_id: int, field: str, correct: bool | None = None):
+    await mark_activity(user_id)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("INSERT OR IGNORE INTO learning_stats(user_id) VALUES(?)", (user_id,))
         if field == "quiz":
@@ -652,6 +655,7 @@ async def card_callback(callback: CallbackQuery):
         await callback.message.edit_text(format_card(idx, category, revealed=True), reply_markup=card_keyboard(idx, category, revealed=True))
     elif action in ("known", "again"):
         await record_learning(callback.from_user.id, "known" if action == "known" else "review")
+        await save_card_review(callback.from_user.id, idx, action)
         await callback.answer("عالیه، خودسنجی انجام شد! ✅" if action == "known" else "این کارت را دوباره مرور کن 🔁")
         note = "\n\n✅ گفتی این کارت را بلدی." if action == "known" else "\n\n🔁 پیشنهاد: این کارت را در نوبت بعد زودتر مرور کن."
         try:
@@ -814,6 +818,75 @@ async def study_search_again(callback: CallbackQuery):
     awaiting_study_search.add(callback.from_user.id)
     await callback.answer()
     await callback.message.answer("سؤال بعدی را بنویس؛ آماده‌ام 🔎")
+
+@dp.message(Command("profile"))
+async def profile_cmd(message: Message):
+    user_id = message.from_user.id
+    raw = (message.text or "").partition(" ")[2].strip()
+    grade, goal = await update_profile(user_id, raw if raw else None)
+    if raw:
+        await message.answer(f"✅ پایه/مقطع ذخیره شد: {raw[:40]}\nهدف روزانه: {goal} دقیقه\nاز این به بعد می‌توانی پایه‌ات را همراه سؤال بنویسی.")
+    else:
+        await message.answer(f"👤 پروفایل آموزشی\nپایه/مقطع: {grade or 'ثبت نشده'}\nهدف روزانه: {goal} دقیقه\n\nبرای ثبت مقطع: /profile پایه نهم")
+
+@dp.message(Command("goal"))
+async def goal_cmd(message: Message):
+    raw = (message.text or "").partition(" ")[2].strip()
+    if not raw:
+        dashboard = await user_dashboard(message.from_user.id)
+        await message.answer(f"🎯 هدف روزانهٔ فعلی: {dashboard['goal']} دقیقه\nنمونه: /goal 45")
+        return
+    try:
+        minutes = int(raw)
+    except ValueError:
+        await message.answer("عدد دقیقه را بنویس؛ نمونه: /goal 45")
+        return
+    goal = await update_goal(message.from_user.id, minutes)
+    await message.answer(f"🎯 هدف روزانه تنظیم شد: {goal} دقیقه.\nبعد از مطالعه، /done 25 را بزن تا زمانت ثبت شود.")
+
+@dp.message(Command("done"))
+async def done_cmd(message: Message):
+    raw = (message.text or "").partition(" ")[2].strip()
+    try:
+        minutes = int(raw.split()[0]) if raw else 25
+    except ValueError:
+        minutes = 25
+    minutes = max(1, min(minutes, 600))
+    await mark_activity(message.from_user.id, minutes)
+    dashboard = await user_dashboard(message.from_user.id)
+    remaining = max(0, dashboard["goal"] - dashboard["minutes"])
+    state = "🎉 هدف امروزت کامل شد!" if remaining == 0 else f"📌 تا هدف امروز {remaining} دقیقه مانده."
+    await message.answer(f"✅ {minutes} دقیقه مطالعه ثبت شد.\nامروز: {dashboard['minutes']}/{dashboard['goal']} دقیقه\nجلسه‌های ثبت‌شده: {dashboard['sessions']}\n{state}")
+
+@dp.message(Command("streak"))
+async def streak_cmd(message: Message):
+    d = await user_dashboard(message.from_user.id)
+    await message.answer(f"🔥 زنجیرهٔ مطالعه: {d['streak']} روز\n📚 امروز: {d['minutes']}/{d['goal']} دقیقه\n🗂 کارت‌های سررسید مرور: {d['due']}\n\nپس از هر جلسه /done 25 را بزن؛ استمرار مهم‌تر از یک روز طولانی است.")
+
+@dp.message(Command("review"))
+async def review_cmd(message: Message):
+    user_id = message.from_user.id
+    card_id, count = await due_card(user_id)
+    if card_id is None:
+        await message.answer("🎉 کارت سررسیدشده‌ای نداری. چند فلش‌کارت مرور کن؛ پاسخ «بلدم» فاصلهٔ مرور بعدی را به‌تدریج بیشتر می‌کند.", reply_markup=category_keyboard())
+        return
+    category = FLASHCARDS[card_id][0]
+    await message.answer(f"🔁 مرور فاصله‌دار • {count} کارت سررسید شده", reply_markup=card_keyboard(card_id, category))
+    await message.answer(format_card(card_id, category), reply_markup=card_keyboard(card_id, category))
+
+@dp.message(Command("admin"))
+async def admin_cmd(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("⛔ این پنل فقط برای مدیر ربات است.")
+        return
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT COUNT(*), COALESCE(SUM(interactions),0) FROM users") as cur:
+            users, interactions = await cur.fetchone()
+        async with db.execute("SELECT COUNT(*), COALESCE(SUM(minutes),0) FROM study_days") as cur:
+            active_days, minutes = await cur.fetchone()
+        async with db.execute("SELECT COUNT(*) FROM learning_stats") as cur:
+            tracked = (await cur.fetchone())[0]
+    await message.answer(f"🛠 پنل مدیریت درس‌یار\n\n👥 کاربران ثبت‌شده: {users}\n💬 تعامل‌ها: {interactions}\n📅 روزهای فعال کاربر: {active_days}\n⏱ مجموع دقیقه‌های ثبت‌شده: {minutes}\n📊 کاربران دارای آمار یادگیری: {tracked}\n🗂 فلش‌کارت‌ها: {len(FLASHCARDS)} در {len(card_categories())} موضوع\n🧠 پرسش‌های آزمون: {len(QUESTIONS)}\n\nفرمان‌های مدیریتی: /stats")
 
 async def main():
     if not BOT_TOKEN:
