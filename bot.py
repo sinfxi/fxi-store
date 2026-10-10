@@ -694,15 +694,15 @@ def format_formula_pages(category: str | None = None):
     grouped = {}
     for subject, name, formula in selected:
         grouped.setdefault(subject, []).append((name, formula))
-    header = f"📖 بانک فرمول‌ها — {category or 'همهٔ درس‌ها'}\\nتعداد: {len(selected)} رابطه\\n"
+    header = f"📖 بانک فرمول‌ها — {category or 'همهٔ درس‌ها'}\nتعداد: {len(selected)} رابطه\n"
     pages, current = [], header
     for subject, entries in grouped.items():
-        current += f"\\n【{subject}】\\n"
+        current += f"\n【{subject}】\n"
         for name, formula in entries:
-            line = f"• {name}\\n  {formula}\\n"
+            line = f"• {name}\n  {formula}\n"
             if len(current) + len(line) > 3200:
                 pages.append(current.rstrip())
-                current = f"📖 ادامهٔ بانک فرمول‌ها — {category or 'همهٔ درس‌ها'}\\n【{subject}】\\n"
+                current = f"📖 ادامهٔ بانک فرمول‌ها — {category or 'همهٔ درس‌ها'}\n【{subject}】\n"
             current += line
     if current.strip():
         pages.append(current.rstrip())
@@ -713,8 +713,8 @@ def formula_categories_text():
     for subject, _, _ in formulas:
         counts[subject] = counts.get(subject, 0) + 1
     grades = "، ".join(f"{g}: {len(items)} رابطه" for g, items in GRADE_FORMULAS.items())
-    return ("📚 بانک فرمول‌ها\\nپایه‌های ۱ تا ۱۲: " + grades +
-            "\\n\\nفرمان‌ها: /formula پایه ۷ ، /formula پایه دوازدهم ، /formula فیزیک")
+    return ("📚 بانک فرمول‌ها\nپایه‌های ۱ تا ۱۲: " + grades +
+            "\n\nفرمان‌ها: /formula پایه ۷ ، /formula پایه دوازدهم ، /formula فیزیک")
 
 @dp.message(Command("formula"))
 async def formula_cmd(message: Message):
