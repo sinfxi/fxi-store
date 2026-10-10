@@ -26,7 +26,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 dp = Dispatcher()
 last_request: dict[int, float] = {}
-awaiting_study_search: set[int] = set()
+awaiting_study_search: set[int] = set()\nlast_tutor_question: dict[int, str] = {}
 openai_client = None
 
 QUESTIONS = [
@@ -132,7 +132,9 @@ FLASHCARDS = [
 ]
 def main_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🧠 آزمون", callback_data="menu:quiz"),
+        [InlineKeyboardButton(text="🤖 معلم هوشمند", callback_data="menu:tutor"),
+         InlineKeyboardButton(text="📝 آزمون ۵ سؤالی", callback_data="menu:exam")],
+        [InlineKeyboardButton(text="🧠 آزمون سریع", callback_data="menu:quiz"),
          InlineKeyboardButton(text="🗂 فلش‌کارت", callback_data="menu:cards")],
         [InlineKeyboardButton(text="🎯 چالش روز", callback_data="menu:daily"),
          InlineKeyboardButton(text="📅 برنامه مطالعه", callback_data="menu:plan")],
@@ -140,6 +142,8 @@ def main_keyboard():
          InlineKeyboardButton(text="🔎 جستجوی درسی", callback_data="menu:search")],
         [InlineKeyboardButton(text="📈 پیشرفت من", callback_data="menu:progress"),
          InlineKeyboardButton(text="📖 فرمول‌ها", callback_data="menu:formula")],
+        [InlineKeyboardButton(text="🇬🇧 واژه انگلیسی", callback_data="menu:vocab"),
+         InlineKeyboardButton(text="⏱ تمرکز", callback_data="menu:focus")],
     ])
 
 async def init_db():
@@ -175,11 +179,13 @@ def rate_limited(user_id: int) -> bool:
     return False
 
 async def answer_question(question: str) -> str:
+    """Generate a student-friendly explanation; never pretend uncertain facts are certain."""
     global openai_client
     if not OPENAI_API_KEY and not GROQ_API_KEY:
         return (
-            "برای فعال‌کردن پاسخ هوشمند، مدیر می‌تواند GROQ_API_KEY یا OPENAI_API_KEY را در متغیرهای محیطی تنظیم کند.\n\n"
-            "تا آن زمان می‌توانی از /quiz و /flashcards استفاده کنی."
+            "🤖 معلم هوشمند هنوز به کلید سرویس هوش مصنوعی وصل نیست.\\n"
+            "مدیر باید GROQ_API_KEY یا OPENAI_API_KEY را در Variables ریلوی تنظیم کند.\\n\\n"
+            "تا آن زمان از آزمون‌ها، فلش‌کارت‌ها و جستجوی کمک‌درسی استفاده کن."
         )
     try:
         if openai_client is None:
@@ -188,34 +194,40 @@ async def answer_question(question: str) -> str:
                 openai_client = AsyncOpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
             else:
                 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        system_prompt = (
+            "تو «درس‌یار»، معلم خصوصی صبور و باهوش برای دانش‌آموزان فارسی‌زبان هستی. "
+            "پاسخ را به فارسی روان و متناسب با سن دانش‌آموز بده. "
+            "برای مسئله‌ها: ۱) داده‌ها و خواسته را مشخص کن، ۲) روش را توضیح بده، "
+            "۳) حل را مرحله‌به‌مرحله انجام بده، ۴) پاسخ نهایی را واضح بنویس، "
+            "۵) یک تمرین کوتاه مشابه برای یادگیری عمیق پیشنهاد کن. "
+            "برای مفاهیم، تعریف ساده، مثال ملموس و یک جمع‌بندی کوتاه بده. "
+            "اگر پایه یا صورت سؤال مبهم است، سؤال روشن‌کننده بپرس. "
+            "اطلاعات، فرمول یا منبع ساختگی نساز؛ اگر مطمئن نیستی صادقانه بگو. "
+            "به‌جای سرزنش، اشتباه را آرام توضیح بده. متن را مرتب و نه بیش از حد طولانی بنویس. "
+            "در موضوعات خطرناک یا غیرآموزشی، ایمنی را رعایت کن."
+        )
         response = await openai_client.chat.completions.create(
             model=(GROQ_MODEL if GROQ_API_KEY else OPENAI_MODEL),
             messages=[
-                {"role": "system", "content": (
-                    "تو درس‌یار، دستیار آموزشی فارسی برای دانش‌آموز هستی. "
-                    "به فارسی روان، مهربان و دقیق پاسخ بده. مفهوم را مرحله‌به‌مرحله توضیح بده، "
-                    "مثال مناسب بزن و در پایان یک سؤال کوتاه برای سنجش فهم مطرح کن. "
-                    "اگر پایه یا درس نامشخص است، فرض‌ها را روشن کن. جواب را جعل نکن."
-                )},
-                {"role": "user", "content": question[:2500]},
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": question[:3500]},
             ],
-            max_tokens=700,
-            temperature=0.4,
+            max_tokens=900,
+            temperature=0.35,
         )
-        return (response.choices[0].message.content or "نتوانستم پاسخ آماده کنم.").strip()
+        answer = (response.choices[0].message.content or "").strip()
+        return answer or "پاسخ مناسبی تولید نشد؛ لطفاً سؤال را کمی واضح‌تر بنویس."
     except Exception as exc:
-        log.warning("AI request failed: %s", type(exc).__name__)
-        return "فعلاً سرویس پاسخ هوشمند در دسترس نیست؛ کمی بعد دوباره امتحان کن."
+        log.warning("Tutor request failed: %s", type(exc).__name__)
+        return "الان در پاسخ‌گویی هوشمند مشکلی پیش آمد. چند لحظه بعد دوباره تلاش کن؛ قابلیت‌های آزمون و فلش‌کارت همچنان در دسترس‌اند."
 
-@dp.message(CommandStart())
-async def start(message: Message):
-    await touch_user(message.from_user.id)
-    await message.answer(
-        "سلام! 🌱 من «درس‌یار» هستم؛ برای یادگیری، تمرین و برنامه‌ریزی کنارت هستم.\n\n"
-        "از دکمه‌ها استفاده کن یا /help را بزن. برای پرسش درسی بنویس: "
-        "/ask چرا فصل‌ها به وجود می‌آیند؟",
-        reply_markup=main_keyboard(),
-    )
+def tutor_followup_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🧩 تمرین مشابه", callback_data="tutor:practice"),
+         InlineKeyboardButton(text="📝 خلاصه‌ی ساده", callback_data="tutor:summary")],
+        [InlineKeyboardButton(text="❓ سؤال دیگر", callback_data="menu:tutor"),
+         InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")],
+    ])
 
 async def find_study_results(query: str):
     """Search study-help pages server-side and return readable snippets inside Telegram."""
@@ -300,15 +312,27 @@ def study_search_again_keyboard():
 @dp.message(F.text & ~F.text.startswith("/"))
 async def plain_text_handler(message: Message):
     user_id = message.from_user.id
-    if user_id in awaiting_study_search:
-        query = (message.text or "").strip()
-        if query:
-            await perform_study_search(message, query)
-        return
-    # Normal text questions go directly to the tutor without requiring a slash command.
     question = (message.text or "").strip()
-    if question and len(question) >= 5:
-        await message.answer(await answer_question(question))
+    if not question:
+        return
+    if user_id in awaiting_study_search:
+        if rate_limited(user_id):
+            await message.answer("یک لحظه صبر کن و دوباره بفرست 🙂")
+            return
+        await touch_user(user_id)
+        await perform_study_search(message, question)
+        return
+    if len(question) < 4:
+        await message.answer("سؤالت را کمی کامل‌تر بنویس تا بهتر کمک کنم 🙂", reply_markup=main_keyboard())
+        return
+    if rate_limited(user_id):
+        await message.answer("یک لحظه صبر کن و دوباره بفرست 🙂")
+        return
+    await touch_user(user_id)
+    last_tutor_question[user_id] = question
+    status = await message.answer("🤖 دارم سؤال را مرحله‌به‌مرحله بررسی می‌کنم…")
+    answer = await answer_question(question)
+    await status.edit_text(answer[:4000], reply_markup=tutor_followup_keyboard())
 
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
@@ -654,31 +678,116 @@ async def stats_cmd(message: Message):
 @dp.callback_query(F.data.startswith("menu:"))
 async def menu_callback(callback: CallbackQuery):
     await callback.answer()
+    user_id = callback.from_user.id
     action = callback.data.split(":")[1]
     if action == "quiz":
         q = random.choice(QUESTIONS)
-        await callback.message.answer("🧠 " + q["q"], reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        await callback.message.answer("🧠 آزمون کوتاه\\n\\n" + q["q"], reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=opt, callback_data=f"quiz:{QUESTIONS.index(q)}:{i}")]
             for i, opt in enumerate(q["options"])
         ]))
+    elif action == "exam":
+        indices = random.sample(range(len(QUESTIONS)), min(5, len(QUESTIONS)))
+        exam_sessions[user_id] = {"indices": indices, "position": 0, "score": 0}
+        await send_exam_question(callback.message, user_id)
     elif action == "cards":
         await callback.message.answer("📚 یک درس انتخاب کن:", reply_markup=category_keyboard())
     elif action in ("resources", "search"):
-        awaiting_study_search.add(callback.from_user.id)
+        awaiting_study_search.add(user_id)
         await callback.message.answer("📘 سؤال یا موضوع درسی‌ات را همین‌جا بنویس؛ نتیجه را داخل ربات می‌بینی.")
+    elif action == "tutor":
+        awaiting_study_search.discard(user_id)
+        await callback.message.answer(
+            "🤖 سؤال درسی‌ات را همین‌جا بنویس. می‌توانی پایه و درس را هم اضافه کنی؛ "
+            "مثلاً «پایه هشتم، ریاضی: چرا منفی در منفی مثبت می‌شود؟»"
+        )
     elif action == "home":
-        await callback.message.answer("🏠 منوی اصلی:", reply_markup=main_keyboard())
+        awaiting_study_search.discard(user_id)
+        await callback.message.answer("🏠 منوی درس‌یار:", reply_markup=main_keyboard())
     elif action == "daily":
         await send_daily(callback.message)
     elif action == "progress":
-        await callback.message.answer("برای گزارش پیشرفت /progress را بزن.")
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("INSERT OR IGNORE INTO learning_stats(user_id) VALUES(?)", (user_id,))
+            async with db.execute("SELECT quiz_answered, quiz_correct, cards_known, cards_review FROM learning_stats WHERE user_id=?", (user_id,)) as cur:
+                answered, correct, known, review = await cur.fetchone()
+        rate = round(correct * 100 / answered) if answered else 0
+        await callback.message.answer(
+            f"📈 پیشرفت تو\\n\\n🧠 پاسخ‌های آزمون: {answered}\\n"
+            f"✅ پاسخ درست: {correct} ({rate}٪)\\n🗂 کارت‌های بلدم: {known}\\n"
+            f"🔁 کارت‌های نیازمند مرور: {review}\\n\\n"
+            "نکته: تمرین‌های منظم کوتاه معمولاً از یک جلسه‌ی فشرده‌ی طولانی بهترند.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🧠 تمرین آزمون", callback_data="menu:exam"),
+                 InlineKeyboardButton(text="🗂 مرور کارت‌ها", callback_data="menu:cards")],
+                [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")]
+            ])
+        )
     elif action == "formula":
-        await callback.message.answer("برای دیدن فرمول‌ها /formula را بزن.")
+        await callback.message.answer(
+            "📖 برگه‌ی فرمول‌های سریع\\n\\n" + "\\n".join(
+                f"• {s} — {name}: {formula}" for s, name, formula in formulas
+            ),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")]
+            ])
+        )
+    elif action == "vocab":
+        word, meaning, example = random.choice(vocab)
+        await callback.message.answer(
+            f"🇬🇧 واژه‌ی امروز: {word}\\nمعنی: {meaning}\\nمثال: {example}\\n\\n"
+            "اول معنی را به یاد بسپار و بعد یک جمله با آن بساز.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔁 واژه‌ی بعدی", callback_data="menu:vocab")],
+                [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")]
+            ])
+        )
+    elif action == "focus":
+        await callback.message.answer(
+            "⏱ روش تمرکز پیشنهادی\\n\\n۱) ۲۵ دقیقه فقط یک هدف مشخص.\\n"
+            "۲) ۵ دقیقه استراحت و کمی حرکت.\\n۳) پس از چهار دور، استراحت طولانی‌تر.\\n\\n"
+            "گوشی را بی‌صدا کن و قبل از شروع، نتیجه‌ای که می‌خواهی به دست بیاوری بنویس.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📅 برنامه مطالعه", callback_data="menu:plan")],
+                [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")]
+            ])
+        )
     elif action == "plan":
-        await callback.message.answer("برنامه: ۲۵ دقیقه مطالعه، ۵ دقیقه استراحت، ۲۵ دقیقه تمرین، ۵ دقیقه استراحت، ۲۰ دقیقه آزمون و ۱۰ دقیقه مرور.")
+        await callback.message.answer(
+            "📅 برنامه‌ی پیشنهادی ۹۰ دقیقه‌ای\\n\\n"
+            "۱) ۲۵ دقیقه: یادگیری یک مبحث کوچک\\n۲) ۵ دقیقه: استراحت\\n"
+            "۳) ۲۵ دقیقه: حل تمرین بدون نگاه به پاسخ\\n۴) ۵ دقیقه: استراحت\\n"
+            "۵) ۲۰ دقیقه: آزمون از خودت\\n۶) ۱۰ دقیقه: مرور اشتباه‌ها و نکته‌ها.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⏱ نکته‌های تمرکز", callback_data="menu:focus")],
+                [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")]
+            ])
+        )
     else:
-        await callback.message.answer("متن سؤال‌ها ذخیره نمی‌شوند. در صورت فعال بودن هوش مصنوعی، سؤال برای تولید پاسخ به ارائه‌دهنده‌ی مدل فرستاده می‌شود.")
+        await callback.message.answer(
+            "🔒 سؤال‌ها برای ساخت گزارش گفت‌وگو ذخیره نمی‌شوند. برای آمار پیشرفت، فقط شمارنده‌های آموزشی نگه‌داری می‌شوند.",
+            reply_markup=main_keyboard()
+        )
 
+@dp.callback_query(F.data.startswith("tutor:"))
+async def tutor_followup(callback: CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    original = last_tutor_question.get(user_id)
+    if not original:
+        await callback.message.answer("اول سؤال درسی‌ات را برایم بنویس.", reply_markup=main_keyboard())
+        return
+    action = callback.data.split(":")[1]
+    if action == "practice":
+        prompt = "بر اساس این سؤال، یک تمرین مشابه تازه بساز؛ پاسخ را پنهان کن و فقط سؤال و گزینه‌ها (اگر لازم است) را بده. سؤال اصلی: " + original
+    elif action == "summary":
+        prompt = "این موضوع را در حداکثر ۵ نکته‌ی ساده و مناسب دانش‌آموز خلاصه کن و یک اشتباه رایج را هم بگو: " + original
+    else:
+        await callback.message.answer("سؤال بعدی را بنویس.", reply_markup=main_keyboard())
+        return
+    status = await callback.message.answer("🧠 آماده می‌کنم…")
+    answer = await answer_question(prompt)
+    await status.edit_text(answer[:4000], reply_markup=tutor_followup_keyboard())
 
 @dp.callback_query(F.data == "study:again")
 async def study_search_again(callback: CallbackQuery):
