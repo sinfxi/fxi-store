@@ -716,28 +716,102 @@ def formula_categories_text():
     return ("📚 بانک فرمول‌ها\nپایه‌های ۱ تا ۱۲: " + grades +
             "\n\nفرمان‌ها: /formula پایه ۷ ، /formula پایه دوازدهم ، /formula فیزیک")
 
+def formula_grade_keyboard():
+    rows = []
+    for base in range(1, 13, 3):
+        rows.append([
+            InlineKeyboardButton(text=f"پایهٔ {GRADE_NAMES[g]}", callback_data=f"formula_grade:{g}")
+            for g in range(base, min(base + 3, 13))
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def formula_topic_keyboard(grade: int):
+    entries = GRADE_FORMULAS.get(grade, [])
+    rows = []
+    for idx in range(0, len(entries), 2):
+        rows.append([
+            InlineKeyboardButton(text=entries[i][0][:30], callback_data=f"formula_item:{grade}:{i}")
+            for i in range(idx, min(idx + 2, len(entries)))
+        ])
+    rows.append([InlineKeyboardButton(text="⬅️ انتخاب پایه", callback_data="formula_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
 @dp.message(Command("formula"))
 async def formula_cmd(message: Message):
     raw = (message.text or "").partition(" ")[2].strip().replace("‌", " ")
     digits = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
     raw = raw.translate(digits)
+    if not raw:
+        await message.answer(
+            "📚 بانک فرمول‌های درس‌یار\n\n۱) پایهٔ تحصیلی را انتخاب کن.\n۲) مبحث را انتخاب کن.\n۳) ربات همان فرمول را جداگانه نشان می‌دهد.",
+            reply_markup=formula_grade_keyboard()
+        )
+        return
     grade_names = {name: number for number, name in GRADE_NAMES.items()}
     grade_text = raw.removeprefix("پایه").strip()
     grade = int(grade_text) if grade_text.isdigit() and 1 <= int(grade_text) <= 12 else grade_names.get(grade_text)
     if grade:
-        for page in format_grade_formula_pages(grade):
-            await message.answer(page)
-        await message.answer("برای پایهٔ دیگر: /formula پایه ۸؛ برای فرمول‌های یک درس: /formula فیزیک")
+        await message.answer(f"📘 پایهٔ {GRADE_NAMES[grade]} — یک مبحث را انتخاب کن:", reply_markup=formula_topic_keyboard(grade))
         return
     aliases = {"ریاضی": "ریاضی", "هندسه": "هندسه", "فیزیک": "فیزیک", "شیمی": "شیمی",
                "زیست": "زیست‌شناسی", "زیست‌شناسی": "زیست‌شناسی", "آمار": "آمار",
                "حسابداری": "حسابداری"}
-    if raw and raw not in aliases:
-        await message.answer(formula_categories_text())
+    selected = aliases.get(raw)
+    pages = format_formula_pages(selected) if selected else []
+    if pages:
+        for page in pages:
+            await message.answer(page)
+    else:
+        await message.answer("برای انتخاب دقیق، /formula را بزن و پایه و مبحث را از دکمه‌ها انتخاب کن.")
+
+@dp.callback_query(F.data == "formula_back")
+async def formula_back(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "📚 پایهٔ تحصیلی را انتخاب کن:",
+        reply_markup=formula_grade_keyboard()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("formula_grade:"))
+async def formula_grade_selected(callback: CallbackQuery):
+    try:
+        grade = int(callback.data.split(":")[1])
+    except (ValueError, IndexError):
+        await callback.answer("پایه نامعتبر است.", show_alert=True)
         return
-    for page in format_formula_pages(aliases.get(raw) if raw else None):
-        await message.answer(page)
-    await message.answer("برای فرمول‌های پایه: /formula پایه ۱۰؛ برای یک درس: /formula فیزیک")
+    if grade not in GRADE_FORMULAS:
+        await callback.answer("این پایه موجود نیست.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        f"📘 پایهٔ {GRADE_NAMES[grade]} — مبحث موردنظر را انتخاب کن:",
+        reply_markup=formula_topic_keyboard(grade)
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("formula_item:"))
+async def formula_item_selected(callback: CallbackQuery):
+    try:
+        _, grade_raw, item_raw = callback.data.split(":")
+        grade, item_index = int(grade_raw), int(item_raw)
+        entries = GRADE_FORMULAS[grade]
+        name, formula = entries[item_index]
+    except (ValueError, IndexError, KeyError):
+        await callback.answer("این مبحث در دسترس نیست.", show_alert=True)
+        return
+    answer = (
+        f"📘 پایهٔ {GRADE_NAMES[grade]}\n"
+        f"📌 مبحث: {name}\n\n"
+        f"🧮 فرمول:\n{formula}\n\n"
+        "اگر خواستی مبحث دیگری ببینی، از دکمهٔ زیر استفاده کن."
+    )
+    await callback.message.edit_text(
+        answer,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📚 مباحث همین پایه", callback_data=f"formula_grade:{grade}")],
+            [InlineKeyboardButton(text="🔢 انتخاب پایهٔ دیگر", callback_data="formula_back")]
+        ])
+    )
+    await callback.answer()
 
 @dp.message(Command("vocab"))
 async def vocab_cmd(message: Message):
