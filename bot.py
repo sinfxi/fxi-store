@@ -258,6 +258,20 @@ async def find_study_results(query: str):
             break
     return results
 
+@dp.message(CommandStart())
+async def start_cmd(message: Message):
+    user_id = message.from_user.id
+    await touch_user(user_id)
+    awaiting_study_search.discard(user_id)
+    await message.answer(
+        "سلام! 👋 به درس‌یار خوش اومدی.\\n\\n"
+        "من کمکت می‌کنم درس‌ها رو بهتر بفهمی، تمرین کنی و پیشرفتت رو دنبال کنی.\\n"
+        "از منو یکی رو انتخاب کن یا همین‌جا سؤال درسی‌ات رو بنویس.\\n\\n"
+        "💡 برای جواب دقیق‌تر، پایه و نام درس رو هم بنویس. "
+        "پاسخ‌های هوش مصنوعی رو با کتاب درسی بررسی کن.",
+        reply_markup=main_keyboard()
+    )
+
 @dp.message(Command("resources"))
 async def resources_cmd(message: Message):
     awaiting_study_search.add(message.from_user.id)
