@@ -20,6 +20,8 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "6384557276"))
 DB_PATH = os.getenv("DB_PATH", "./data/studybot.db")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 dp = Dispatcher()
 last_request: dict[int, float] = {}
 openai_client = None
@@ -74,18 +76,20 @@ def rate_limited(user_id: int) -> bool:
 
 async def answer_question(question: str) -> str:
     global openai_client
-    if not OPENAI_API_KEY:
+    if not OPENAI_API_KEY and not GROQ_API_KEY:
         return (
-            "برای پاسخ هوشمند، مدیر باید OPENAI_API_KEY را در متغیرهای محیطی تنظیم کند.\n\n"
-            "تا آن زمان می‌توانی از /quiz و /flashcards استفاده کنی. "
-            "سؤالت را همراه با نام درس و پایه هم بنویس تا راهنمایی دقیق‌تری آماده شود."
+            "برای فعال‌کردن پاسخ هوشمند، مدیر می‌تواند GROQ_API_KEY یا OPENAI_API_KEY را در متغیرهای محیطی تنظیم کند.\n\n"
+            "تا آن زمان می‌توانی از /quiz و /flashcards استفاده کنی."
         )
     try:
         if openai_client is None:
             from openai import AsyncOpenAI
-            openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            if GROQ_API_KEY:
+                openai_client = AsyncOpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+            else:
+                openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         response = await openai_client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=(GROQ_MODEL if GROQ_API_KEY else OPENAI_MODEL),
             messages=[
                 {"role": "system", "content": (
                     "تو درس‌یار، دستیار آموزشی فارسی برای دانش‌آموز هستی. "
