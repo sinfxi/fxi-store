@@ -60,7 +60,10 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await health.json())["status"], "ok")
         page = await self.client.get("/")
         self.assertEqual(page.status, 200)
-        self.assertIn("پنل مدیریت درس‌یار", await page.text())
+        self.assertIn("پنل دانش‌آموزی درس‌یار", await page.text())
+        admin = await self.client.get("/admin")
+        self.assertEqual(admin.status, 200)
+        self.assertIn("پنل مدیریت درس‌یار", await admin.text())
 
     async def test_private_api_rejects_missing_token(self):
         response = await self.client.get("/api/summary")
