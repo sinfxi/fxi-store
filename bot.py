@@ -403,7 +403,7 @@ async def exam_answer(callback: CallbackQuery):
     else:
         nq = QUESTIONS[session["indices"][session["position"]]]
         await callback.message.edit_text(f"📝 سؤال {session['position']+1}/5\\n\\n{nq['q']}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=opt, callback_data=f"exam:{i}")]
+            [InlineKeyboardButton(text=opt, callback_data=f"exam:{session['position']}:{i}")]
             for i, opt in enumerate(nq["options"])
         ]))
 
