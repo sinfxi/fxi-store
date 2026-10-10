@@ -68,7 +68,7 @@ async def me(req):
  uid=_require(req)
  async with aiosqlite.connect(DB_PATH) as db:
   async with db.execute("SELECT first_name,username FROM web_login_tickets WHERE telegram_id=? ORDER BY expires DESC LIMIT 1",(uid,)) as c:ident=await c.fetchone()
-  async with db.execute("SELECT COALESCE(SUM(minutes),0),COALESCE(SUM(CASE WHEN date(created_at)=date('now','localtime') THEN minutes ELSE 0 END),0) FROM study_days WHERE user_id=?",(uid,)) as c:st=await c.fetchone()
+  async with db.execute("SELECT COALESCE(SUM(minutes),0),COALESCE(SUM(CASE WHEN study_date=date('now','localtime') THEN minutes ELSE 0 END),0) FROM study_days WHERE user_id=?",(uid,)) as c:st=await c.fetchone()
   async with db.execute("SELECT quiz_answered,quiz_correct FROM learning_stats WHERE user_id=?",(uid,)) as c:stats=await c.fetchone()
   async with db.execute("SELECT daily_goal FROM user_profiles WHERE user_id=?",(uid,)) as c:g=await c.fetchone()
  a,b=stats or (0,0)
