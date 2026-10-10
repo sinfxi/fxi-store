@@ -20,9 +20,13 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.old_db_path = web_dashboard.DB_PATH
-        self.old_token = os.environ.get("WEB_ADMIN_TOKEN")
+        self.old_email = os.environ.get("WEB_ADMIN_EMAIL")
+        self.old_password = os.environ.get("WEB_ADMIN_PASSWORD")
+        self.old_secret = os.environ.get("WEB_SESSION_SECRET")
         web_dashboard.DB_PATH = os.path.join(self.temp.name, "test.sqlite")
-        os.environ["WEB_ADMIN_TOKEN"] = "unit-test-secret"
+        os.environ["WEB_ADMIN_EMAIL"] = "admin@example.test"
+        os.environ["WEB_ADMIN_PASSWORD"] = "unit-test-password"
+        os.environ["WEB_SESSION_SECRET"] = "unit-test-session-secret"
         async with aiosqlite.connect(web_dashboard.DB_PATH) as db:
             await db.executescript("""
                 CREATE TABLE users(user_id INTEGER PRIMARY KEY, interactions INTEGER NOT NULL DEFAULT 0);
@@ -43,10 +47,11 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.client.close()
         web_dashboard.DB_PATH = self.old_db_path
-        if self.old_token is None:
-            os.environ.pop("WEB_ADMIN_TOKEN", None)
-        else:
-            os.environ["WEB_ADMIN_TOKEN"] = self.old_token
+        for key, old_value in (("WEB_ADMIN_EMAIL", self.old_email), ("WEB_ADMIN_PASSWORD", self.old_password), ("WEB_SESSION_SECRET", self.old_secret)):
+            if old_value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old_value
         self.temp.cleanup()
 
     async def test_health_and_dashboard_are_public(self):
@@ -60,17 +65,23 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
     async def test_private_api_rejects_missing_token(self):
         response = await self.client.get("/api/summary")
         self.assertEqual(response.status, 401)
+        login = await self.client.post("/api/login", json={"email": "admin@example.test", "password": "wrong"})
+        self.assertEqual(login.status, 401)
+        login = await self.client.post("/api/login", json={"email": "admin@example.test", "password": "unit-test-password"})
+        self.assertEqual(login.status, 200)
+        self.assertIn("darsyar_session", self.client.session.cookie_jar.filter_cookies(self.client.make_url("/")).keys())
 
     async def test_summary_and_user_search(self):
-        headers = {"Authorization": "Bearer unit-test-secret"}
-        response = await self.client.get("/api/summary", headers=headers)
+        login = await self.client.post("/api/login", json={"email": "admin@example.test", "password": "unit-test-password"})
+        self.assertEqual(login.status, 200)
+        response = await self.client.get("/api/summary")
         self.assertEqual(response.status, 200)
         data = await response.json()
         self.assertEqual(data["users"], 2)
         self.assertEqual(data["interactions"], 9)
         self.assertEqual(data["flashcards"], 84)
         self.assertEqual(data["subjects"], 12)
-        users = await self.client.get("/api/users?search=هشتم", headers=headers)
+        users = await self.client.get("/api/users?search=هشتم")
         self.assertEqual(users.status, 200)
         listed = await users.json()
         self.assertEqual(listed["total"], 1)
@@ -78,10 +89,10 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listed["users"][0]["accuracy"], 75)
 
     async def test_broadcast_requires_confirmation_and_sends(self):
-        headers = {"Authorization": "Bearer unit-test-secret", "Content-Type": "application/json"}
-        denied = await self.client.post("/api/broadcast", headers=headers, json={"text": "اطلاعیه"})
+        await self.client.post("/api/login", json={"email": "admin@example.test", "password": "unit-test-password"})
+        denied = await self.client.post("/api/broadcast", json={"text": "اطلاعیه"})
         self.assertEqual(denied.status, 400)
-        accepted = await self.client.post("/api/broadcast", headers=headers, json={"text": "اطلاعیه", "confirm": True})
+        accepted = await self.client.post("/api/broadcast", json={"text": "اطلاعیه", "confirm": True})
         self.assertEqual(accepted.status, 200)
         result = await accepted.json()
         self.assertEqual(result["sent"], 2)
