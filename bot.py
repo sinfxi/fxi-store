@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("darsyar")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-ADMIN_ID = int(os.getenv("ADMIN_ID", "6384557276"))
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 DB_PATH = os.getenv("DB_PATH", "./data/studybot.db")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -574,6 +574,30 @@ formulas = [
     ("حسابداری", "نسبت جاری", "دارایی جاری ÷ بدهی جاری"),
     ("حسابداری", "بهای تمام‌شدهٔ کالای فروش‌رفته", "موجودی اول دوره + خالص خرید − موجودی پایان دوره"),
 ]
+GRADE_FORMULAS = {
+1: [("جمع", "a+b=c؛ c−a=b"), ("محیط مربع", "P=4a"), ("محیط مستطیل", "P=2(l+w)")],
+2: [("ضرب", "a×b = جمع تکراری"), ("تقسیم", "a×b=c ⇒ c÷a=b"), ("مساحت مستطیل", "A=l×w")],
+3: [("مساحت مربع", "A=a²"), ("محیط مستطیل", "P=2(l+w)"), ("کسر", "قسمت‌های انتخابی÷کل قسمت‌های مساوی")],
+4: [("جمع کسرهای هم‌مخرج", "a/n+b/n=(a+b)/n"), ("مساحت مستطیل", "A=l×w"), ("محیط چندضلعی", "P=مجموع طول ضلع‌ها")],
+5: [("ضرب کسرها", "(a/b)×(c/d)=ac/bd"), ("تقسیم کسرها", "(a/b)÷(c/d)=(a/b)×(d/c)"), ("درصد", "(جزء÷کل)×۱۰۰"), ("حجم مکعب", "V=a³")],
+6: [("تناسب", "a/b=c/d ⇒ ad=bc"), ("مساحت مثلث", "A=bh/2"), ("مساحت دایره", "A=πr²"), ("میانگین", "مجموع داده‌ها÷تعداد داده‌ها")],
+7: [("توزیع‌پذیری", "a(b+c)=ab+ac"), ("معادله", "x+a=b ⇒ x=b−a"), ("مجموع زاویه‌های مثلث", "A+B+C=۱۸۰°"), ("تناسب مستقیم", "y=kx")],
+8: [("مربع مجموع", "(a+b)²=a²+2ab+b²"), ("مربع تفاضل", "(a−b)²=a²−2ab+b²"), ("مزدوج", "(a+b)(a−b)=a²−b²"), ("فیثاغورس", "a²+b²=c²")],
+9: [("توان‌های هم‌پایه", "aᵐ×aⁿ=aᵐ⁺ⁿ"), ("تقسیم توان‌ها", "aᵐ÷aⁿ=aᵐ⁻ⁿ"), ("معادلهٔ درجهٔ اول", "ax+b=0 ⇒ x=−b/a"), ("حجم استوانه", "V=πr²h")],
+10: [("شیب خط", "m=(y₂−y₁)/(x₂−x₁)"), ("معادلهٔ خط", "y−y₁=m(x−x₁)"), ("نسبت‌های مثلثاتی", "sinθ=مقابل/وتر؛ cosθ=مجاور/وتر"), ("رابطهٔ بنیادی", "sin²θ+cos²θ=1")],
+11: [("معادلهٔ درجهٔ دوم", "ax²+bx+c=0"), ("دلتا", "Δ=b²−4ac"), ("ریشه‌ها", "x=(−b±√Δ)/(2a)"), ("دنبالهٔ حسابی", "aₙ=a₁+(n−1)d"), ("مجموع دنباله", "Sₙ=n(a₁+aₙ)/2")],
+12: [("مشتق توان", "d(xⁿ)/dx=nxⁿ⁻¹"), ("قاعدهٔ ضرب", "(fg)'=f'g+fg'"), ("قاعدهٔ زنجیره‌ای", "(f(g(x)))'=f'(g(x))g'(x)"), ("انتگرال توان", "∫xⁿdx=xⁿ⁺¹/(n+1)+C، n≠−1"), ("احتمال شرطی", "P(A|B)=P(A∩B)/P(B)")],
+}
+GRADE_NAMES = {1:"اول",2:"دوم",3:"سوم",4:"چهارم",5:"پنجم",6:"ششم",7:"هفتم",8:"هشتم",9:"نهم",10:"دهم",11:"یازدهم",12:"دوازدهم"}
+
+def format_grade_formula_pages(grade: int):
+    entries = GRADE_FORMULAS.get(grade, [])
+    lines = [f"📚 فرمول‌های ریاضی پایهٔ {GRADE_NAMES[grade]}", f"تعداد: {len(entries)} رابطه", ""]
+    for name, formula in entries:
+        lines.extend([f"• {name}", f"  {formula}", ""])
+    output = "\n".join(lines).strip()
+    return [output[i:i+3200] for i in range(0, len(output), 3200)]
+
 async def record_learning(user_id: int, field: str, correct: bool | None = None):
     await mark_activity(user_id)
     async with aiosqlite.connect(DB_PATH) as db:
@@ -667,14 +691,19 @@ def format_formula_pages(category: str | None = None):
     selected = [item for item in formulas if not category or item[0].casefold() == category.casefold()]
     if not selected:
         return []
-    header = f"📖 فرمول‌های درس‌یار ({category or 'همهٔ درس‌ها'})\nتعداد: {len(selected)}\n\n"
-    pages, current = [], header
+    grouped = {}
     for subject, name, formula in selected:
-        line = f"• {subject} — {name}: {formula}\n"
-        if len(current) + len(line) > 3400:
-            pages.append(current.rstrip())
-            current = f"📖 ادامهٔ فرمول‌ها ({category or 'همهٔ درس‌ها'})\n\n"
-        current += line
+        grouped.setdefault(subject, []).append((name, formula))
+    header = f"📖 بانک فرمول‌ها — {category or 'همهٔ درس‌ها'}\\nتعداد: {len(selected)} رابطه\\n"
+    pages, current = [], header
+    for subject, entries in grouped.items():
+        current += f"\\n【{subject}】\\n"
+        for name, formula in entries:
+            line = f"• {name}\\n  {formula}\\n"
+            if len(current) + len(line) > 3200:
+                pages.append(current.rstrip())
+                current = f"📖 ادامهٔ بانک فرمول‌ها — {category or 'همهٔ درس‌ها'}\\n【{subject}】\\n"
+            current += line
     if current.strip():
         pages.append(current.rstrip())
     return pages
@@ -683,25 +712,32 @@ def formula_categories_text():
     counts = {}
     for subject, _, _ in formulas:
         counts[subject] = counts.get(subject, 0) + 1
-    return "📚 موضوع‌های موجود:\n" + "\n".join(f"• {subject}: {count} فرمول" for subject, count in counts.items()) + "\n\nنمونه: /formula فیزیک"
+    grades = "، ".join(f"{g}: {len(items)} رابطه" for g, items in GRADE_FORMULAS.items())
+    return ("📚 بانک فرمول‌ها\\nپایه‌های ۱ تا ۱۲: " + grades +
+            "\\n\\nفرمان‌ها: /formula پایه ۷ ، /formula پایه دوازدهم ، /formula فیزیک")
 
 @dp.message(Command("formula"))
 async def formula_cmd(message: Message):
-    category = (message.text or "").partition(" ")[2].strip()
+    raw = (message.text or "").partition(" ")[2].strip().replace("‌", " ")
+    digits = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
+    raw = raw.translate(digits)
+    grade_names = {name: number for number, name in GRADE_NAMES.items()}
+    grade_text = raw.removeprefix("پایه").strip()
+    grade = int(grade_text) if grade_text.isdigit() and 1 <= int(grade_text) <= 12 else grade_names.get(grade_text)
+    if grade:
+        for page in format_grade_formula_pages(grade):
+            await message.answer(page)
+        await message.answer("برای پایهٔ دیگر: /formula پایه ۸؛ برای فرمول‌های یک درس: /formula فیزیک")
+        return
     aliases = {"ریاضی": "ریاضی", "هندسه": "هندسه", "فیزیک": "فیزیک", "شیمی": "شیمی",
                "زیست": "زیست‌شناسی", "زیست‌شناسی": "زیست‌شناسی", "آمار": "آمار",
                "حسابداری": "حسابداری"}
-    if category and category not in aliases:
+    if raw and raw not in aliases:
         await message.answer(formula_categories_text())
         return
-    selected_category = aliases.get(category) if category else None
-    pages = format_formula_pages(selected_category)
-    if not pages:
-        await message.answer(formula_categories_text())
-        return
-    for page in pages:
+    for page in format_formula_pages(aliases.get(raw) if raw else None):
         await message.answer(page)
-    await message.answer("برای نمایش یک درس، بنویس: /formula فیزیک")
+    await message.answer("برای فرمول‌های پایه: /formula پایه ۱۰؛ برای یک درس: /formula فیزیک")
 
 @dp.message(Command("vocab"))
 async def vocab_cmd(message: Message):
