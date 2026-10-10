@@ -278,6 +278,15 @@ async def start_cmd(message: Message):
     user_id = message.from_user.id
     await touch_user(user_id)
     awaiting_study_search.discard(user_id)
+    payload = (message.text or "").partition(" ")[2].strip()
+    if payload.startswith("web_"):
+        from user_portal import complete_telegram_login
+        ok = await complete_telegram_login(payload[4:], user_id, message.from_user.first_name or "", message.from_user.username or "")
+        if ok:
+            await message.answer("✅ هویت تلگرامت تأیید شد. برگرد به صفحهٔ پنل درس‌یار؛ ورود تکمیل می‌شود.", reply_markup=main_keyboard())
+        else:
+            await message.answer("⏳ لینک ورود منقضی یا استفاده شده است. از پنل وب یک لینک تازه بساز.", reply_markup=main_keyboard())
+        return
     await message.answer(
         "سلام! 👋 به درس‌یار خوش اومدی.\n\n"
         "من کمکت می‌کنم درس‌ها رو بهتر بفهمی، تمرین کنی و پیشرفتت رو دنبال کنی.\n"
