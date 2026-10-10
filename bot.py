@@ -29,6 +29,7 @@ dp = Dispatcher()
 last_request: dict[int, float] = {}
 awaiting_study_search: set[int] = set()
 last_tutor_question: dict[int, str] = {}
+timer_tasks: dict[int, asyncio.Task] = {}
 openai_client = None
 
 QUESTIONS = [
@@ -158,6 +159,12 @@ async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY, interactions INTEGER NOT NULL DEFAULT 0
+        )""")
+        await db.execute("""CREATE TABLE IF NOT EXISTS study_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            note TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""")
         await db.execute("""CREATE TABLE IF NOT EXISTS learning_stats (
             user_id INTEGER PRIMARY KEY,
@@ -376,6 +383,12 @@ async def help_cmd(message: Message):
         "/done 25 — ثبت یک جلسه مطالعه و زمان آن\n"
         "/streak — زنجیره مطالعه و هدف امروز\n"
         "/review — مرور فلش‌کارت‌های سررسیدشده\n"
+        "/note متن — ذخیره یادداشت درسی شخصی\n"
+        "/notes — نمایش یادداشت‌های اخیر\n"
+        "/deletenote شماره — حذف یادداشت خودت\n"
+        "/timer 25 — تایمر مطالعه به دقیقه\n"
+        "/stoptimer — توقف تایمر فعال\n"
+        "/tip — نکته تصادفی برای بهتر درس خواندن\n"
         "/resources — جستجوی کمک‌درسی داخل ربات\n"
         "/search عبارت — پیدا کردن نتیجه‌های درسی داخل ربات\n"
         "/privacy — اطلاعات حریم خصوصی\n"
@@ -1009,6 +1022,125 @@ async def review_cmd(message: Message):
         return
     category = FLASHCARDS[card_id][0]
     await message.answer(f"🔁 مرور فاصله‌دار • {count} کارت سررسید شده\n\n" + format_card(card_id, category), reply_markup=card_keyboard(card_id, category))
+
+@dp.message(Command("note"))
+async def note_cmd(message: Message):
+    user_id = message.from_user.id
+    note = (message.text or "").partition(" ")[2].strip()
+    if not note:
+        await message.answer("📝 برای ذخیره یادداشت بنویس:\n/note نکته مهم فصل دوم")
+        return
+    if len(note) > 1500:
+        await message.answer("یادداشت خیلی طولانی است؛ حداکثر ۱۵۰۰ نویسه بفرست.")
+        return
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("INSERT INTO study_notes(user_id, note) VALUES(?, ?)", (user_id, note))
+        note_id = cur.lastrowid
+        await db.commit()
+    await message.answer(f"✅ یادداشت #{note_id} ذخیره شد. فقط خودت می‌توانی یادداشت‌هایت را ببینی.\nبرای دیدن: /notes")
+
+
+@dp.message(Command("notes"))
+async def notes_cmd(message: Message):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id, note, created_at FROM study_notes WHERE user_id=? ORDER BY id DESC LIMIT 10",
+            (message.from_user.id,)
+        ) as cur:
+            rows = await cur.fetchall()
+    if not rows:
+        await message.answer("هنوز یادداشتی ذخیره نکرده‌ای. نمونه: /note تعریف فتوسنتز")
+        return
+    lines = ["📝 یادداشت‌های اخیر تو (حداکثر ۱۰ مورد):"]
+    for note_id, note, created_at in rows:
+        lines.append(f"\n#{note_id} • {created_at}\n{note}")
+    lines.append("\nبرای حذف یک یادداشت: /deletenote شماره")
+    await message.answer("\n".join(lines)[:4000])
+
+
+@dp.message(Command("deletenote"))
+async def delete_note_cmd(message: Message):
+    raw = (message.text or "").partition(" ")[2].strip()
+    if not raw.isdigit():
+        await message.answer("شماره یادداشت را بنویس؛ نمونه: /deletenote 3")
+        return
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "DELETE FROM study_notes WHERE id=? AND user_id=?",
+            (int(raw), message.from_user.id)
+        )
+        await db.commit()
+    if cur.rowcount:
+        await message.answer("🗑 یادداشت حذف شد.")
+    else:
+        await message.answer("یادداشت پیدا نشد یا متعلق به تو نیست.")
+
+
+async def finish_study_timer(user_id: int, chat_id: int, bot, minutes: int):
+    try:
+        await asyncio.sleep(minutes * 60)
+        await bot.send_message(
+            chat_id,
+            f"⏰ {minutes} دقیقه تمام شد! اگر مطالعه کردی، برای ثبت در آمار /done {minutes} را بزن.\n۵ دقیقه استراحت کوتاه یادت نرود 🌿"
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("Study timer notification failed")
+    finally:
+        current = timer_tasks.get(user_id)
+        if current is asyncio.current_task():
+            timer_tasks.pop(user_id, None)
+
+
+@dp.message(Command("timer"))
+async def timer_cmd(message: Message):
+    raw = (message.text or "").partition(" ")[2].strip()
+    try:
+        minutes = int(raw) if raw else 25
+    except ValueError:
+        await message.answer("مدت تایمر را به دقیقه بنویس؛ نمونه: /timer 25")
+        return
+    if not 1 <= minutes <= 180:
+        await message.answer("مدت تایمر باید بین ۱ تا ۱۸۰ دقیقه باشد.")
+        return
+    user_id = message.from_user.id
+    previous = timer_tasks.get(user_id)
+    if previous and not previous.done():
+        await message.answer("یک تایمر فعال داری. اول /stoptimer را بزن یا صبر کن تمام شود.")
+        return
+    timer_tasks[user_id] = asyncio.create_task(
+        finish_study_timer(user_id, message.chat.id, message.bot, minutes)
+    )
+    await message.answer(f"⏱ تایمر {minutes} دقیقه‌ای شروع شد.\nوقتی تمام شود به همین گفت‌وگو پیام می‌دهم. برای توقف: /stoptimer")
+
+
+@dp.message(Command("stoptimer"))
+async def stop_timer_cmd(message: Message):
+    task = timer_tasks.get(message.from_user.id)
+    if not task or task.done():
+        await message.answer("تایمر فعالی پیدا نکردم.")
+        return
+    task.cancel()
+    await message.answer("⏹ تایمر متوقف شد.")
+
+
+STUDY_TIPS = [
+    "🧠 بازیابی فعال: کتاب را ببند و نکته‌ها را از حافظه توضیح بده.",
+    "🔁 مرور فاصله‌دار: مطلب را امروز، فردا و چند روز بعد دوباره مرور کن.",
+    "✍️ تمرین حل‌کردنی: قبل از دیدن پاسخ، خودت راه‌حل را کامل بنویس.",
+    "🎯 هدف کوچک: به‌جای «ریاضی بخوانم»، بگو «سه تمرین معادله حل کنم».",
+    "📵 تمرکز: برای یک بازه کوتاه اعلان‌ها را خاموش و فقط یک کار را انتخاب کن.",
+    "🗣️ روش فاینمن: موضوع را با زبان ساده طوری توضیح بده که یک دوست بفهمد.",
+    "🌙 خواب کافی به تثبیت یادگیری کمک می‌کند؛ شب امتحان تمام خواب را حذف نکن.",
+    "✅ اشتباه‌ها را ثبت کن و دلیل اشتباه را بنویس؛ فقط جواب درست را حفظ نکن.",
+]
+
+
+@dp.message(Command("tip"))
+async def tip_cmd(message: Message):
+    await message.answer("💡 نکتهٔ مطالعهٔ امروز\n\n" + random.choice(STUDY_TIPS))
+
 
 @dp.message(Command("admin"))
 async def admin_cmd(message: Message):
