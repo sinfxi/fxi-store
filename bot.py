@@ -278,9 +278,9 @@ async def start_cmd(message: Message):
     await touch_user(user_id)
     awaiting_study_search.discard(user_id)
     await message.answer(
-        "سلام! 👋 به درس‌یار خوش اومدی.\\n\\n"
-        "من کمکت می‌کنم درس‌ها رو بهتر بفهمی، تمرین کنی و پیشرفتت رو دنبال کنی.\\n"
-        "از منو یکی رو انتخاب کن یا همین‌جا سؤال درسی‌ات رو بنویس.\\n\\n"
+        "سلام! 👋 به درس‌یار خوش اومدی.\n\n"
+        "من کمکت می‌کنم درس‌ها رو بهتر بفهمی، تمرین کنی و پیشرفتت رو دنبال کنی.\n"
+        "از منو یکی رو انتخاب کن یا همین‌جا سؤال درسی‌ات رو بنویس.\n\n"
         "💡 برای جواب دقیق‌تر، پایه و نام درس رو هم بنویس. "
         "پاسخ‌های هوش مصنوعی رو با کتاب درسی بررسی کن.",
         reply_markup=main_keyboard()
@@ -418,17 +418,42 @@ async def quiz_cmd(message: Message):
     ])
     await message.answer("🧠 آزمون کوتاه\n\n" + q["q"], reply_markup=keyboard)
 
+answered_quiz_messages: set[tuple[int, int, int]] = set()
+
 @dp.callback_query(F.data.startswith("quiz:"))
 async def quiz_answer(callback: CallbackQuery):
-    _, q_index, chosen = callback.data.split(":")
-    q = QUESTIONS[int(q_index)]
-    correct = int(chosen) == q["answer"]
+    try:
+        _, q_index_raw, chosen_raw = callback.data.split(":")
+        q_index, chosen = int(q_index_raw), int(chosen_raw)
+        if not 0 <= q_index < len(QUESTIONS):
+            raise ValueError("question index out of range")
+        q = QUESTIONS[q_index]
+        if not 0 <= chosen < len(q["options"]):
+            raise ValueError("answer index out of range")
+    except (ValueError, AttributeError):
+        await callback.answer("این گزینه معتبر نیست؛ یک آزمون تازه شروع کن.", show_alert=True)
+        return
+
+    message_key = (callback.from_user.id, callback.message.chat.id, callback.message.message_id)
+    if message_key in answered_quiz_messages:
+        await callback.answer("این سؤال قبلاً پاسخ داده شده است.", show_alert=True)
+        return
+    answered_quiz_messages.add(message_key)
+    if len(answered_quiz_messages) > 5000:
+        answered_quiz_messages.clear()
+        answered_quiz_messages.add(message_key)
+
+    correct = chosen == q["answer"]
     await record_learning(callback.from_user.id, "quiz", correct)
     await callback.answer("آفرین! پاسخ درست بود 🎉" if correct else "این بار نشد؛ با هم مرور کنیم.")
-    await callback.message.edit_text(
-        ("✅ درست است!" if correct else f"❌ پاسخ درست: {q['options'][q['answer']]}") +
-        f"\n\n📘 توضیح: {q['why']}"
-    )
+    try:
+        await callback.message.edit_text(
+            ("✅ درست است!" if correct else f"❌ پاسخ درست: {q['options'][q['answer']]}") +
+            f"\n\n📘 توضیح: {q['why']}"
+        )
+    except TelegramBadRequest as exc:
+        if "message is not modified" not in str(exc).lower():
+            raise
 
 
 # --- Extra learning features ---
@@ -604,13 +629,24 @@ async def exam_answer(callback: CallbackQuery):
     if not session:
         await callback.answer("آزمون تمام شده؛ برای شروع دوباره /exam را بزن.", show_alert=True)
         return
-    idx = session["indices"][session["position"]]
-    q = QUESTIONS[idx]
-    _, question_position, chosen_value = callback.data.split(":")
-    if int(question_position) != session["position"]:
+    try:
+        _, position_raw, chosen_raw = callback.data.split(":")
+        question_position, chosen = int(position_raw), int(chosen_raw)
+    except (ValueError, AttributeError):
+        await callback.answer("این گزینه معتبر نیست؛ /exam را دوباره بزن.", show_alert=True)
+        return
+    if question_position != session["position"]:
         await callback.answer("این سؤال قبلاً پاسخ داده شده؛ سؤال فعلی را انتخاب کن.", show_alert=True)
         return
-    chosen = int(chosen_value)
+    if not 0 <= session["position"] < len(session["indices"]):
+        exam_sessions.pop(user_id, None)
+        await callback.answer("آزمون به پایان رسیده؛ /exam را دوباره بزن.", show_alert=True)
+        return
+    idx = session["indices"][session["position"]]
+    q = QUESTIONS[idx]
+    if not 0 <= chosen < len(q["options"]):
+        await callback.answer("گزینه نامعتبر است.", show_alert=True)
+        return
     correct = chosen == q["answer"]
     session["score"] += int(correct)
     await record_learning(user_id, "quiz", correct)
@@ -619,10 +655,10 @@ async def exam_answer(callback: CallbackQuery):
     if session["position"] >= len(session["indices"]):
         score = session["score"]
         del exam_sessions[user_id]
-        await callback.message.edit_text(f"🏁 آزمون تمام شد!\nامتیاز: {score}/5 ({score*20}٪)\n" + ("عالی بود! 🌟" if score >= 4 else "اشتباه‌ها فرصت یادگیری‌اند؛ دوباره تمرین کن 💪"))
+        await callback.message.edit_text(f"🏁 آزمون تمام شد!\nامتیاز: {score}/{len(session['indices'])} ({round(score*100/len(session['indices']))}٪)\n" + ("عالی بود! 🌟" if score >= 4 else "اشتباه‌ها فرصت یادگیری‌اند؛ دوباره تمرین کن 💪"))
     else:
         nq = QUESTIONS[session["indices"][session["position"]]]
-        await callback.message.edit_text(f"📝 سؤال {session['position']+1}/5\n\n{nq['q']}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        await callback.message.edit_text(f"📝 سؤال {session['position']+1}/{len(session['indices'])}\n\n{nq['q']}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=opt, callback_data=f"exam:{session['position']}:{i}")]
             for i, opt in enumerate(nq["options"])
         ]))
