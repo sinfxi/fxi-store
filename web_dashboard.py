@@ -115,7 +115,7 @@ async def summary(request: web.Request):
         "users": users, "interactions": interactions, "minutes": minutes, "active_days": active_days,
         "profiles": profiles, "quiz_answered": quiz_answered, "quiz_correct": quiz_correct,
         "accuracy": round(quiz_correct * 100 / quiz_answered) if quiz_answered else 0,
-        "flashcards": cards, "subjects": 0, "week": week,
+        "flashcards": request.app["flashcards_count"], "subjects": request.app["subject_count"], "week": week,
     })
 
 
@@ -193,9 +193,11 @@ async def broadcast(request: web.Request):
     return web.json_response({"total": len(user_ids), "sent": sent, "failed": failed})
 
 
-def create_web_app(bot: object) -> web.Application:
+def create_web_app(bot: object, flashcards_count: int = 0, subject_count: int = 0) -> web.Application:
     app = web.Application(client_max_size=16 * 1024)
     app["bot"] = bot
+    app["flashcards_count"] = flashcards_count
+    app["subject_count"] = subject_count
     app.router.add_get("/health", health)
     app.router.add_get("/", dashboard)
     app.router.add_get("/dashboard", dashboard)
