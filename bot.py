@@ -26,6 +26,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 dp = Dispatcher()
 last_request: dict[int, float] = {}
+awaiting_study_search: set[int] = set()
 openai_client = None
 
 QUESTIONS = [
@@ -246,39 +247,68 @@ async def find_study_results(query: str):
 
 @dp.message(Command("resources"))
 async def resources_cmd(message: Message):
+    awaiting_study_search.add(message.from_user.id)
     await message.answer(
-        "📘 کمک‌درسی\n\n"
-        "موضوع یا سؤال درسی‌ات را همین‌جا بفرست؛ نتیجه‌ها داخل ربات نمایش داده می‌شوند و لازم نیست از تلگرام خارج شوی.\n"
-        "مثال: /search جواب تمرین صفحه ۳۲ علوم هشتم"
+        "📘 کمک‌درسی\\n\\n"
+        "سؤال یا موضوع درسی‌ات را همین‌جا بنویس. نتیجه‌ها داخل ربات نمایش داده می‌شوند.\\n"
+        "برای شروع، فقط متن سؤال را بفرست."
     )
 
 @dp.message(Command("search"))
 async def resource_search_cmd(message: Message):
     query = (message.text or "").partition(" ")[2].strip()
     if not query:
-        await message.answer("سؤال یا موضوع درسی را بنویس:\n/search جواب تمرین صفحه ۳۲ علوم هشتم")
+        awaiting_study_search.add(message.from_user.id)
+        await message.answer("سؤال یا موضوع درسی را همین‌جا بنویس:")
         return
+    await perform_study_search(message, query)
+
+async def perform_study_search(message: Message, query: str):
+    awaiting_study_search.discard(message.from_user.id)
     status = await message.answer("🔎 دارم جواب‌ها و تمرین‌های مرتبط را پیدا می‌کنم…")
     try:
         results = await find_study_results(query)
     except Exception as exc:
         log.warning("Study search failed: %s", type(exc).__name__)
         await status.edit_text(
-            "الان جستجوی آنلاین در دسترس نیست. کمی بعد دوباره امتحان کن یا سؤال را با /ask بفرست."
+            "الان جستجوی آنلاین در دسترس نیست. دوباره تلاش کن یا متن سؤال را برای توضیح بفرست."
         )
         return
     if not results:
         await status.edit_text(
-            f"برای «{query}» نتیجه‌ی مناسبی پیدا نکردم.\n\n"
-            "نام درس، پایه، شماره صفحه یا متن سؤال را دقیق‌تر بفرست؛ یا از /ask برای توضیح استفاده کن."
+            f"برای «{query}» نتیجه‌ی مناسبی پیدا نکردم.\\n\\n"
+            "می‌توانی سؤال را دقیق‌تر بنویسی یا با دکمه‌ی «جستجوی سؤال دیگر» دوباره تلاش کنی.",
+            reply_markup=study_search_again_keyboard(),
         )
         return
     body = [f"📘 نتیجه‌های درسی برای: {query}"]
     for i, (title, snippet) in enumerate(results, 1):
-        body.append(f"\n{i}. {title}" + (f"\n{snippet}" if snippet else ""))
-    body.append("\n\nاگر پاسخ کامل نبود، متن یا عکس سؤال را بفرست تا داخل ربات مرحله‌به‌مرحله حلش کنم.")
-    text_out = "\n".join(body)
-    await status.edit_text(text_out[:4000], disable_web_page_preview=True)
+        body.append(f"\\n{i}. {title}" + (f"\\n{snippet}" if snippet else ""))
+    body.append("\\n\\nاگر پاسخ کامل نبود، می‌توانی متن سؤال را بفرستی یا جستجوی دیگری انجام بدهی.")
+    await status.edit_text(
+        "\\n".join(body)[:4000],
+        reply_markup=study_search_again_keyboard(),
+        disable_web_page_preview=True,
+    )
+
+def study_search_again_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔎 جستجوی سؤال دیگر", callback_data="study:again")],
+        [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")],
+    ])
+
+@dp.message(F.text & ~F.text.startswith("/"))
+async def plain_text_handler(message: Message):
+    user_id = message.from_user.id
+    if user_id in awaiting_study_search:
+        query = (message.text or "").strip()
+        if query:
+            await perform_study_search(message, query)
+        return
+    # Normal text questions go directly to the tutor without requiring a slash command.
+    question = (message.text or "").strip()
+    if question and len(question) >= 5:
+        await message.answer(await answer_question(question))
 
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
@@ -633,10 +663,11 @@ async def menu_callback(callback: CallbackQuery):
         ]))
     elif action == "cards":
         await callback.message.answer("📚 یک درس انتخاب کن:", reply_markup=category_keyboard())
-    elif action == "resources":
-        await callback.message.answer("📘 کمک‌درسی\\n\\nموضوع یا سؤال درسی را همین‌جا بفرست؛ نتیجه‌ها داخل ربات نمایش داده می‌شوند.\\nمثال: /search جواب تمرین صفحه ۳۲ علوم هشتم")
-    elif action == "search":
-        await callback.message.answer("برای جستجوی موضوع، این قالب را بفرست:\\n/search جواب تمرین صفحه ۳۲ علوم هشتم")
+    elif action in ("resources", "search"):
+        awaiting_study_search.add(callback.from_user.id)
+        await callback.message.answer("📘 سؤال یا موضوع درسی‌ات را همین‌جا بنویس؛ نتیجه را داخل ربات می‌بینی.")
+    elif action == "home":
+        await callback.message.answer("🏠 منوی اصلی:", reply_markup=main_keyboard())
     elif action == "daily":
         await send_daily(callback.message)
     elif action == "progress":
@@ -647,6 +678,13 @@ async def menu_callback(callback: CallbackQuery):
         await callback.message.answer("برنامه: ۲۵ دقیقه مطالعه، ۵ دقیقه استراحت، ۲۵ دقیقه تمرین، ۵ دقیقه استراحت، ۲۰ دقیقه آزمون و ۱۰ دقیقه مرور.")
     else:
         await callback.message.answer("متن سؤال‌ها ذخیره نمی‌شوند. در صورت فعال بودن هوش مصنوعی، سؤال برای تولید پاسخ به ارائه‌دهنده‌ی مدل فرستاده می‌شود.")
+
+
+@dp.callback_query(F.data == "study:again")
+async def study_search_again(callback: CallbackQuery):
+    awaiting_study_search.add(callback.from_user.id)
+    await callback.answer()
+    await callback.message.answer("سؤال بعدی را بنویس؛ آماده‌ام 🔎")
 
 async def main():
     if not BOT_TOKEN:
