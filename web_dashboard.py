@@ -257,6 +257,7 @@ async def broadcast(request: web.Request):
 def create_web_app(bot: object, flashcards_count: int = 0, subject_count: int = 0) -> web.Application:
     app = web.Application(client_max_size=16 * 1024)
     app["bot"] = bot
+    app["db_path"] = DB_PATH
     app["flashcards_count"] = flashcards_count
     app["subject_count"] = subject_count
     app.router.add_get("/health", health)
