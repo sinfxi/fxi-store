@@ -13,6 +13,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
 from study_engine import ensure_study_schema, mark_activity, save_card_review, user_dashboard, update_goal, update_profile, due_card
+from study_sources import search_study_sources
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
