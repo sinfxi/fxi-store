@@ -247,32 +247,9 @@ def tutor_followup_keyboard():
     ])
 
 async def find_study_results(query: str):
-    """Search study-help pages server-side and return readable snippets inside Telegram."""
-    import aiohttp
-    from bs4 import BeautifulSoup
-
-    search_query = f"({query}) (site:hamyarbook.ir OR site:asan-dars.ir OR site:gama.ir)"
-    url = "https://html.duckduckgo.com/html/?q=" + quote_plus(search_query)
-    timeout = aiohttp.ClientTimeout(total=12)
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; DarsYarStudyBot/1.0)"}
-    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-        async with session.get(url, allow_redirects=True) as response:
-            response.raise_for_status()
-            html = await response.text()
-    soup = BeautifulSoup(html, "html.parser")
-    results = []
-    for item in soup.select(".result"):
-        title_el = item.select_one(".result__title")
-        snippet_el = item.select_one(".result__snippet")
-        if not title_el:
-            continue
-        title = " ".join(title_el.get_text(" ", strip=True).split())
-        snippet = " ".join(snippet_el.get_text(" ", strip=True).split()) if snippet_el else ""
-        if title:
-            results.append((title[:180], snippet[:500]))
-        if len(results) >= 5:
-            break
-    return results
+    """Search trusted education domains and return linked excerpts."""
+    sources = await search_study_sources(query, limit=5)
+    return [(x["title"], (x["snippet"] + "\n🔗 " + x["url"]).strip()) for x in sources]
 
 @dp.message(CommandStart())
 async def start_cmd(message: Message):
