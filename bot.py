@@ -30,6 +30,8 @@ dp = Dispatcher()
 last_request: dict[int, float] = {}
 awaiting_study_search: set[int] = set()
 last_tutor_question: dict[int, str] = {}
+awaiting_essay_topic: set[int] = set()
+ESSAY_TOPICS = ["دوستی واقعی", "اهمیت تلاش و پشتکار", "کتاب بهترین دوست انسان", "مهربانی در زندگی روزمره", "نقش خانواده در موفقیت", "حفظ محیط زیست", "یک روز به‌یادماندنی", "اگر من مدیر مدرسه بودم", "ارزش وقت و زمان", "امید در روزهای سخت", "تأثیر فضای مجازی بر زندگی", "احترام به تفاوت‌ها"]
 tutor_history: dict[int, list[dict[str, str]]] = {}
 timer_tasks: dict[int, asyncio.Task] = {}
 openai_client = None
@@ -150,6 +152,8 @@ def main_keyboard():
          InlineKeyboardButton(text="📅 برنامه مطالعه", callback_data="menu:plan")],
         [InlineKeyboardButton(text="📘 کمک‌درسی", callback_data="menu:resources"),
          InlineKeyboardButton(text="🔎 جستجوی درسی", callback_data="menu:search")],
+        [InlineKeyboardButton(text="✍️ انشانویس", callback_data="menu:essay"),
+         InlineKeyboardButton(text="📈 پیشرفت من", callback_data="menu:progress")],
         [InlineKeyboardButton(text="📈 پیشرفت من", callback_data="menu:progress"),
          InlineKeyboardButton(text="📖 فرمول‌ها", callback_data="menu:formula")],
         [InlineKeyboardButton(text="🇬🇧 واژه انگلیسی", callback_data="menu:vocab"),
@@ -376,6 +380,20 @@ async def plain_text_handler(message: Message):
     question = (message.text or "").strip()
     if not question:
         return
+    if user_id in awaiting_essay_topic:
+        awaiting_essay_topic.discard(user_id)
+        if rate_limited(user_id):
+            await message.answer("یک لحظه صبر کن و دوباره بفرست 🙂")
+            return
+        await touch_user(user_id)
+        status = await message.answer("✍️ موضوع را گرفتم؛ دارم انشا را آماده می‌کنم…")
+        essay = await generate_essay(question, user_id)
+        await status.edit_text(essay[:4000], reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎲 موضوع خودکار", callback_data="essay:auto")],
+            [InlineKeyboardButton(text="📝 موضوع دلخواه", callback_data="essay:custom")],
+            [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")],
+        ]))
+        return
     if user_id in awaiting_study_search:
         if rate_limited(user_id):
             await message.answer("یک لحظه صبر کن و دوباره بفرست 🙂")
@@ -399,7 +417,7 @@ async def plain_text_handler(message: Message):
 async def help_cmd(message: Message):
     await message.answer(
         "📚 راهنمای پیشرفته درس‌یار\n\n"
-        "/ask سوال — توضیح مرحله‌ای (با کلید اختیاری هوش مصنوعی)\n"
+        "/ask سوال — توضیح مرحله‌ای (با کلید اختیاری هوش مصنوعی)\n        /essay — انشا با موضوع خودکار یا موضوع دلخواه\n"
         "/quiz — آزمون چهارگزینه‌ای فوری\n"
         "/exam — آزمون ۵ سؤالی با امتیاز نهایی\n"
         "/daily — چالش روزانه\n"
@@ -439,6 +457,74 @@ async def ask_cmd(message: Message):
         return
     await message.answer("دارم سؤال را بررسی می‌کنم… ⏳")
     await message.answer(await answer_question(question, user_id=message.from_user.id))
+
+@dp.message(Command("essay"))
+async def essay_cmd(message: Message):
+    awaiting_essay_topic.discard(message.from_user.id)
+    await message.answer(
+        "✍️ انشانویس درس‌یار\n\nیکی از دو روش را انتخاب کن:\n• موضوع خودکار: یک موضوع مناسب انتخاب می‌کنم.\n• موضوع دلخواه: موضوع را خودت می‌نویسی.\n\nمتن با فارسی روان و لحن طبیعی نوشته می‌شود؛ قبل از تحویل، بهتر است آن را با تجربه و بیان خودت ویرایش کنی.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎲 انتخاب موضوع خودکار", callback_data="essay:auto")],
+            [InlineKeyboardButton(text="📝 موضوع خودم را می‌نویسم", callback_data="essay:custom")],
+            [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")],
+        ])
+    )
+
+async def generate_essay(topic: str, user_id: int) -> str:
+    """Generate a natural Persian school essay using the configured AI provider."""
+    global openai_client
+    topic = (topic or "").strip()[:180]
+    if not topic:
+        return "موضوع انشا را بنویس."
+    if not OPENAI_API_KEY and not GROQ_API_KEY:
+        return "✍️ بخش انشانویس آماده است، اما کلید هوش مصنوعی هنوز در ریلوی تنظیم نشده. مدیر باید OPENAI_API_KEY یا GROQ_API_KEY را در Variables اضافه کند؛ بعد از آن هر دو روش کار می‌کنند."
+    try:
+        if openai_client is None:
+            from openai import AsyncOpenAI
+            if GROQ_API_KEY:
+                openai_client = AsyncOpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1", timeout=35.0, max_retries=1)
+            else:
+                openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=35.0, max_retries=1)
+        response = await openai_client.chat.completions.create(
+            model=(GROQ_MODEL if GROQ_API_KEY else OPENAI_MODEL),
+            messages=[
+                {"role": "system", "content": "تو مربی نگارش فارسی برای دانش‌آموز هستی. انشایی طبیعی، ملموس و خوش‌خوان بنویس؛ مثل نوشته‌ی یک دانش‌آموز واقعی، نه متن تبلیغاتی یا کلیشه‌ای. از جمله‌های متنوع، جزئیات روزمره و احساسات باورپذیر استفاده کن؛ از اغراق، مقدمه‌های کلیشه‌ای و عبارت‌های توخالی دوری کن. ساختار مقدمه، بدنه و نتیجه‌گیری داشته باشد، اما عنوان‌گذاری اجباری نکن مگر مفید باشد. واقعیت شخصی ساختگی را به کاربر نسبت نده. طول تقریبی ۳۰۰ تا ۴۰۰ کلمه باشد. فقط متن انشا و یک عنوان کوتاه را بنویس."},
+                {"role": "user", "content": f"برای موضوع «{topic}» یک انشای فارسی طبیعی و انسانی بنویس. زبان ساده و متناسب با مدرسه باشد؛ چند جزئیات ملموس بیاور و از لحن ماشینی و عبارت‌های کلیشه‌ای دوری کن."}
+            ],
+            max_tokens=850,
+            temperature=0.75,
+        )
+        essay = (response.choices[0].message.content or "").strip()
+        if not essay:
+            return "نتوانستم انشا را تولید کنم؛ دوباره تلاش کن."
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("CREATE TABLE IF NOT EXISTS essay_history (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, topic TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+            await db.execute("INSERT INTO essay_history(user_id, topic) VALUES(?, ?)", (user_id, topic))
+            await db.commit()
+        return essay[:3650] + "\n\n✏️ پیشنهاد: چند جمله را با تجربه‌ها و واژه‌های خودت تغییر بده تا انشا واقعاً صدای خودت را داشته باشد."
+    except Exception as exc:
+        log.warning("Essay generation failed: %s", type(exc).__name__)
+        return "الان تولید انشا با خطا روبه‌رو شد. کمی بعد دوباره تلاش کن."
+
+@dp.callback_query(F.data.startswith("essay:"))
+async def essay_callback(callback: CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    mode = callback.data.split(":", 1)[1]
+    if mode == "custom":
+        awaiting_essay_topic.add(user_id)
+        awaiting_study_search.discard(user_id)
+        await callback.message.answer("موضوع انشایت را در یک پیام بنویس؛ مثلاً «یک روز بارانی در حیاط مدرسه».")
+        return
+    if mode == "auto":
+        topic = random.choice(ESSAY_TOPICS)
+        status = await callback.message.answer(f"🎲 موضوع انتخاب شد: {topic}\n\n✍️ دارم انشا را می‌نویسم…")
+        essay = await generate_essay(topic, user_id)
+        await status.edit_text(essay[:4000], reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎲 موضوع خودکار دیگر", callback_data="essay:auto")],
+            [InlineKeyboardButton(text="📝 موضوع دلخواه", callback_data="essay:custom")],
+            [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")],
+        ]))
 
 @dp.message(Command("quiz"))
 async def quiz_cmd(message: Message):
@@ -1049,6 +1135,13 @@ async def menu_callback(callback: CallbackQuery):
     elif action in ("resources", "search"):
         awaiting_study_search.add(user_id)
         await callback.message.answer("📘 سؤال یا موضوع درسی‌ات را همین‌جا بنویس؛ نتیجه را داخل ربات می‌بینی.")
+    elif action == "essay":
+        awaiting_study_search.discard(user_id)
+        await callback.message.answer("✍️ انشانویس درس‌یار: موضوع خودکار یا موضوع دلخواه؟", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎲 انتخاب موضوع خودکار", callback_data="essay:auto")],
+            [InlineKeyboardButton(text="📝 موضوع خودم را می‌نویسم", callback_data="essay:custom")],
+            [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="menu:home")],
+        ]))
     elif action == "tutor":
         awaiting_study_search.discard(user_id)
         await callback.message.answer(
