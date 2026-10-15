@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS reports (
   status TEXT NOT NULL DEFAULT 'open'
 );
 CREATE TABLE IF NOT EXISTS pending_reports(user_id INTEGER PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS pending_likes(user_id INTEGER PRIMARY KEY, ff_uid TEXT NOT NULL);
 """)
 db.commit()
 bot = Bot(TOKEN)
@@ -48,6 +49,7 @@ def home_keyboard(user_id: int):
     rows = [
         [InlineKeyboardButton(text="👤 پروفایل من", callback_data="profile"),
          InlineKeyboardButton(text="🧰 امکانات", callback_data="features")],
+        [InlineKeyboardButton(text="❤️ ارسال لایک فری‌فایر", callback_data="likes")],
         [InlineKeyboardButton(text="📝 ارسال پیشنهاد یا گزارش", callback_data="report"),
          InlineKeyboardButton(text="ℹ️ راهنما", callback_data="help")],
     ]
@@ -87,7 +89,7 @@ async def profile(call: CallbackQuery):
 @dp.callback_query(F.data == "features")
 async def features(call: CallbackQuery):
     await call.message.edit_text(
-        "🧰 امکانات فعلی\n\n• پروفایل کاربری\n• ثبت پیشنهاد و گزارش\n• پنل مدیریت محدود به مدیران\n• آمار پایه کاربران\n\nقابلیت‌های بیشتر را می‌توان به‌صورت ماژولار اضافه کرد.",
+        "🧰 امکانات فعلی\n\n• ارسال لایک فری‌فایر (ورود UID و انتخاب منطقه)\n• پروفایل کاربری\n• ثبت پیشنهاد و گزارش\n• پنل مدیریت محدود به مدیران\n• آمار پایه کاربران\n\nقابلیت‌های بیشتر را می‌توان به‌صورت ماژولار اضافه کرد.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ منوی اصلی", callback_data="home")]]))
     await call.answer()
 
@@ -97,6 +99,30 @@ async def help_menu(call: CallbackQuery):
         "ℹ️ راهنما\n\nاز دکمه‌های منو استفاده کن. برای ثبت گزارش، گزینهٔ «ارسال پیشنهاد یا گزارش» را بزن و سپس متن را ارسال کن.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ منوی اصلی", callback_data="home")]]))
     await call.answer()
+
+@dp.callback_query(F.data == "likes")
+async def likes_prompt(call: CallbackQuery):
+    db.execute("DELETE FROM pending_reports WHERE user_id=?", (call.from_user.id,))
+    db.execute("INSERT OR REPLACE INTO pending_likes(user_id, ff_uid) VALUES(?, '')", (call.from_user.id,))
+    db.commit()
+    await call.message.answer("❤️ ارسال لایک فری‌فایر\\n\\nUID بازیکن را بفرست (فقط عدد). برای لغو /cancel را بزن.")
+    await call.answer()
+
+@dp.callback_query(F.data.startswith("likes_region:"))
+async def likes_region(call: CallbackQuery):
+    region = call.data.split(":", 1)[1]
+    row = db.execute("SELECT ff_uid FROM pending_likes WHERE user_id=?", (call.from_user.id,)).fetchone()
+    if not row or not row[0]:
+        await call.answer("اول UID بازیکن را بفرست.", show_alert=True)
+        return
+    await call.message.answer(
+        f"UID ثبت شد: {row[0]}\\nمنطقه انتخاب‌شده: {region}\\n\\n"
+        "هنوز لایک ارسال نشد؛ آدرس و قالب درخواست API از روی کلید به‌تنهایی مشخص نیست. "
+        "بعد از مشخص‌شدن مستندات سرویس، اتصال واقعی را فعال می‌کنم."
+    )
+    db.execute("DELETE FROM pending_likes WHERE user_id=?", (call.from_user.id,))
+    db.commit()
+    await call.answer("اطلاعات ثبت شد")
 
 @dp.callback_query(F.data == "report")
 async def report_prompt(call: CallbackQuery):
@@ -108,6 +134,7 @@ async def report_prompt(call: CallbackQuery):
 @dp.message(Command("cancel"))
 async def cancel_report(message: Message):
     db.execute("DELETE FROM pending_reports WHERE user_id=?", (message.from_user.id,))
+    db.execute("DELETE FROM pending_likes WHERE user_id=?", (message.from_user.id,))
     db.commit()
     await message.answer("عملیات لغو شد.")
 
@@ -115,6 +142,22 @@ async def cancel_report(message: Message):
 async def capture_report(message: Message):
     u = message.from_user
     if not u or message.text.startswith("/"):
+        return
+    pending_like = db.execute("SELECT ff_uid FROM pending_likes WHERE user_id=?", (u.id,)).fetchone()
+    if pending_like:
+        player_uid = message.text.strip()
+        if not player_uid.isdigit() or not (5 <= len(player_uid) <= 20):
+            await message.answer("UID معتبر نیست. لطفاً فقط شناسه عددی بازیکن را بفرست.")
+            return
+        db.execute("UPDATE pending_likes SET ff_uid=? WHERE user_id=?", (player_uid, u.id))
+        db.commit()
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🇮🇳 هند", callback_data="likes_region:IND"),
+             InlineKeyboardButton(text="🇧🇷 برزیل", callback_data="likes_region:BR")],
+            [InlineKeyboardButton(text="🇮🇩 اندونزی", callback_data="likes_region:ID"),
+             InlineKeyboardButton(text="🌍 سایر مناطق", callback_data="likes_region:OTHER")],
+        ])
+        await message.answer("منطقه اکانت را انتخاب کن:", reply_markup=kb)
         return
     pending = db.execute("SELECT 1 FROM pending_reports WHERE user_id=?", (u.id,)).fetchone()
     if not pending:
