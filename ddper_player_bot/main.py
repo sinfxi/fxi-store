@@ -234,10 +234,10 @@ async def send_section(update, section_name):
                 "این بخش در سایت با داده‌های پویا بارگذاری می‌شود و متن کامل آن از HTML اولیه قابل دریافت نیست. برای دیدن داده‌های زنده، منبع سایت را باز کن؛ اتصال مستقیم به API این بخش هنوز نیاز به شناسایی مسیر دادهٔ آن دارد."
             ]
         text += ["", f'🔗 <a href="{url}">باز کردن بخش {label} در DDPER</a>']
-        await msg.edit_text("\n".join(text), parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
+        await msg.edit_text("\n".join(text), parse_mode="HTML", disable_web_page_preview=True)
     except requests.RequestException as exc:
         log.warning("DDPER section fetch failed for %s: %s", path, type(exc).__name__)
-        await msg.edit_text(f"⚠️ فعلاً نتوانستم اطلاعات این بخش را از سایت دریافت کنم.\n<a href=\"{url}\">باز کردن {label}</a>", parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
+        await msg.edit_text(f"⚠️ فعلاً نتوانستم اطلاعات این بخش را از سایت دریافت کنم.\n<a href=\"{url}\">باز کردن {label}</a>", parse_mode="HTML", disable_web_page_preview=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
