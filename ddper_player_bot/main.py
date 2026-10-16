@@ -4,9 +4,11 @@ import json
 import logging
 import asyncio
 from datetime import datetime, timezone
+from urllib.parse import quote, urljoin
 
 import requests
-from telegram import Update, ReplyKeyboardMarkup
+from bs4 import BeautifulSoup
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
 logging.basicConfig(level=logging.INFO)
@@ -14,32 +16,77 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("ddper-bot")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-PLAYER_URL = os.getenv("DDPER_PLAYER_URL", "https://ddnet.org/players/FXI/").strip()
-API_URL = "https://ddnet.org/players/?json2={player}"
-
+DDPER_URL = "https://ddper.ir"
+DDNET_API_URL = "https://ddnet.org/players/?json2={player}"
+DEFAULT_PLAYER = os.getenv("DDPER_DEFAULT_PLAYER", "FXI").strip() or "FXI"
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is required. Add it in Railway Variables.")
 
 MENU = ReplyKeyboardMarkup(
-    [["📊 آمار بازیکن FXI", "🔎 جستجوی بازیکن"], ["🌐 لینک پروفایل", "ℹ️ راهنما"]],
+    [
+        ["📊 آمار بازیکن", "🔎 جستجوی بازیکن"],
+        ["🏆 رتبه‌بندی", "🗺 مپ‌ها"],
+        ["👥 کلن‌ها", "🖥 وضعیت سرورها"],
+        ["🎨 اسکین‌ها", "🛒 فروشگاه"],
+        ["⬇️ دانلود بازی", "ℹ️ راهنما"],
+    ],
     resize_keyboard=True,
 )
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; DDPERStatsBot/1.0)",
-    "Accept": "application/json,text/plain,*/*",
+    "User-Agent": "Mozilla/5.0 (compatible; DDPERTelegramBot/1.0)",
+    "Accept": "text/html,application/xhtml+xml,application/json,*/*",
+}
+
+SECTIONS = {
+    "🏠 خانه": ("/", "خانهٔ DDPER"),
+    "🏆 رتبه‌بندی": ("/ranks", "رتبه‌بندی بازیکنان"),
+    "🗺 مپ‌ها": ("/maps", "آرشیو نقشه‌ها"),
+    "👥 کلن‌ها": ("/clans", "کلن‌ها و اعضا"),
+    "🖥 وضعیت سرورها": ("/status", "وضعیت سرورها"),
+    "🎨 اسکین‌ها": ("/skins", "گالری اسکین‌ها"),
+    "🛒 فروشگاه": ("/shop", "فروشگاه اشتراک‌ها"),
+    "⬇️ دانلود بازی": ("/download", "دانلود کلاینت بازی"),
+    "📘 آموزش": ("/guides", "آموزش‌ها"),
+    "📜 قوانین": ("/rules", "قوانین"),
+}
+LINKS = {
+    "Discord": "https://ddper.ir/discord",
+    "Telegram": "https://t.me/TeeWorlds",
+    "Website": DDPER_URL,
 }
 
 def clean(value):
-    return re.sub(r"\s+", " ", str(value or "")).strip()
+    return re.sub(r"\\s+", " ", str(value or "")).strip()
 
-def request_player(name):
-    """Use DDNet's public JSON endpoint instead of scraping the JavaScript page."""
-    response = requests.get(API_URL.format(player=requests.utils.quote(name, safe="")), headers=HEADERS, timeout=20)
+def fetch_json_player(name):
+    response = requests.get(
+        DDNET_API_URL.format(player=quote(name, safe="")),
+        headers=HEADERS,
+        timeout=20,
+    )
     response.raise_for_status()
     data = response.json()
     if not isinstance(data, dict) or not data.get("player"):
         return None
     return data
+
+def fetch_site_section(path):
+    url = urljoin(DDPER_URL, path)
+    response = requests.get(url, headers=HEADERS, timeout=20)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+    title = clean(soup.title.get_text(" ", strip=True)) if soup.title else ""
+    for node in soup(["script", "style", "noscript", "svg", "nav", "footer", "header"]):
+        node.decompose()
+    main = soup.find("main") or soup.find("article") or soup.body or soup
+    lines = []
+    for node in main.find_all(["h1", "h2", "h3", "p", "li", "tr"], limit=90):
+        text = clean(node.get_text(" ", strip=True))
+        if text and text not in lines and len(text) > 1:
+            lines.append(text)
+    # Extract useful structured text when the page is rendered server-side.
+    content = "\\n".join(lines[:32])
+    return {"url": url, "title": title, "content": content}
 
 def rank_text(value):
     if not isinstance(value, dict):
@@ -48,9 +95,17 @@ def rank_text(value):
     points = value.get("points")
     if rank is None:
         return "ثبت نشده"
+    try:
+        rank = f"{int(rank):,}"
+    except (TypeError, ValueError):
+        rank = str(rank)
     if points is not None:
-        return f"رتبهٔ {rank:,} · {points:,} امتیاز"
-    return f"رتبهٔ {rank:,}"
+        try:
+            points = f"{int(points):,}"
+        except (TypeError, ValueError):
+            points = str(points)
+        return f"رتبهٔ {rank} · {points} امتیاز"
+    return f"رتبهٔ {rank}"
 
 def seconds_text(value):
     try:
@@ -71,7 +126,7 @@ def timestamp_text(value):
     except (TypeError, ValueError, OSError):
         return "—"
 
-def make_report(player_name, data):
+def make_player_report(player_name, data):
     points = data.get("points") or {}
     team_rank = data.get("team_rank") or {}
     rank = data.get("rank") or {}
@@ -84,114 +139,122 @@ def make_report(player_name, data):
     total_points = points.get("total", "—")
     earned_points = points.get("points", "—")
     player = clean(data.get("player") or player_name)
-
     lines = [
-        f"🎮 <b>آمار بازیکن: {player}</b>",
-        "",
+        f"🎮 <b>آمار بازیکن {player}</b>", "",
         "🌍 <b>آمار کلی</b>",
         f"🏆 رتبهٔ جهانی: <b>{rank_text(rank)}</b>",
         f"🤝 رتبهٔ تیمی: <b>{rank_text(team_rank)}</b>",
-        f"⭐ امتیاز کل بازیکنان: <b>{total_points:,}</b>" if isinstance(total_points, int) else f"⭐ کل امتیاز موجود در سیستم: <b>{total_points}</b>",
-        f"💠 امتیاز بازیکن: <b>{earned_points:,}</b>" if isinstance(earned_points, int) else f"💠 امتیاز بازیکن: <b>{earned_points}</b>",
+        f"⭐ امتیاز کل سیستم: <b>{total_points:,}</b>" if isinstance(total_points, int) else f"⭐ امتیاز کل سیستم: <b>{clean(total_points)}</b>",
+        f"💠 امتیاز بازیکن: <b>{earned_points:,}</b>" if isinstance(earned_points, int) else f"💠 امتیاز بازیکن: <b>{clean(earned_points)}</b>",
         f"📅 امتیاز ۷ روز اخیر: <b>{rank_text(week)}</b>",
         f"🗓️ امتیاز ۳۰ روز اخیر: <b>{rank_text(month)}</b>",
         f"📆 امتیاز ۳۶۵ روز اخیر: <b>{rank_text(year)}</b>",
         f"🖥️ سرور محبوب: <b>{clean(favorite.get('server', '—'))}</b>",
     ]
-
     if first:
-        lines += [
-            "",
-            "🥇 <b>اولین رکورد</b>",
-            f"🗺️ نقشه: <b>{clean(first.get('map', '—'))}</b>",
-            f"⏱️ زمان: <b>{seconds_text(first.get('time', '—'))}</b>",
-            f"🕒 تاریخ: <b>{timestamp_text(first.get('timestamp'))}</b>",
-        ]
-
+        lines += ["", "🥇 <b>اولین رکورد</b>",
+                  f"🗺️ نقشه: <b>{clean(first.get('map', '—'))}</b>",
+                  f"⏱️ زمان: <b>{seconds_text(first.get('time', '—'))}</b>",
+                  f"🕒 تاریخ: <b>{timestamp_text(first.get('timestamp'))}</b>"]
     lines += ["", "🔥 <b>۱۰ رکورد اخیر</b>"]
     if recent:
-        for index, item in enumerate(recent[:10], 1):
-            server = clean(item.get("type", ""))
-            country = clean(item.get("country", ""))
-            place = clean(item.get("map", "نقشه نامشخص"))
-            time_value = seconds_text(item.get("time", "—"))
-            stamp = timestamp_text(item.get("timestamp"))
-            suffix = " · ".join(x for x in (server, country) if x)
-            lines.append(f"{index}. <b>{place}</b> — {time_value}")
+        for i, item in enumerate(recent[:10], 1):
+            map_name = clean(item.get("map", "نقشه نامشخص"))
+            lines.append(f"{i}. <b>{map_name}</b> — {seconds_text(item.get('time', '—'))}")
+            suffix = " · ".join(x for x in (clean(item.get("type", "")), clean(item.get("country", ""))) if x)
             if suffix:
                 lines.append(f"   <i>{suffix}</i>")
-            lines.append(f"   <i>{stamp}</i>")
+            lines.append(f"   <i>{timestamp_text(item.get('timestamp'))}</i>")
     else:
-        lines.append("برای این بازیکن رکورد اخیری در خروجی API ثبت نشده است.")
-
+        lines.append("رکورد اخیر در خروجی عمومی ثبت نشده است.")
     hours = data.get("hours_played_past_365_days")
     if hours is not None:
-        lines += ["", f"⏳ ساعت بازی در ۳۶۵ روز اخیر: <b>{hours}</b>"]
+        lines += ["", f"⏳ ساعت بازی در ۳۶۵ روز اخیر: <b>{clean(hours)}</b>"]
+    lines += ["", f'🌐 <a href="{DDPER_URL}/players/{quote(player, safe="")}">پروفایل در سایت DDPER</a>']
+    return "\\n".join(lines)
 
-    lines += ["", f'🔗 <a href="https://ddnet.org/players/{requests.utils.quote(player, safe="")}/">مشاهدهٔ پروفایل</a>']
-    return "\n".join(lines)
-
-async def send_profile(update, player_name, context):
-    msg = await update.effective_message.reply_text("⏳ دارم آمار واقعی بازیکن را از API دریافت می‌کنم…")
+async def send_player(update, player_name):
+    msg = await update.effective_message.reply_text("⏳ در حال دریافت آمار بازیکن…", reply_markup=MENU)
     try:
-        data = await asyncio.to_thread(request_player, player_name)
+        data = await asyncio.to_thread(fetch_json_player, player_name)
         if not data:
             await msg.edit_text(
-                f"❌ بازیکن «{player_name}» در دیتابیس عمومی پیدا نشد یا هنوز آماری برایش ثبت نشده.\n"
-                "اسم بازیکن را دقیقاً مثل پروفایل سایت بفرست.",
+                f"❌ بازیکن «{player_name}» در دیتابیس عمومی پیدا نشد. نام داخل بازی را دقیق بفرست.",
                 reply_markup=MENU,
             )
             return
-        report = make_report(player_name, data)
+        report = make_player_report(player_name, data)
         if len(report) > 3900:
-            report = report[:3750] + "\n…\n" + f'🔗 <a href="https://ddnet.org/players/{requests.utils.quote(player_name, safe="")}/">پروفایل و رکوردهای بیشتر</a>'
+            report = report[:3650] + f'\\n…\\n<a href="{DDPER_URL}/players/{quote(player_name, safe="")}">مشاهده پروفایل کامل</a>'
         await msg.edit_text(report, parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
     except requests.RequestException as exc:
-        log.warning("Player API request failed: %s", type(exc).__name__)
-        await msg.edit_text("⚠️ سرویس آمار فعلاً پاسخ نمی‌دهد. چند لحظه بعد دوباره «آمار بازیکن FXI» را بزن.", reply_markup=MENU)
-    except (ValueError, json.JSONDecodeError):
-        log.exception("Invalid JSON from player API")
-        await msg.edit_text("⚠️ پاسخ سرویس آمار قابل‌خواندن نبود؛ لطفاً کمی بعد دوباره امتحان کن.", reply_markup=MENU)
+        log.warning("Player API failed: %s", type(exc).__name__)
+        await msg.edit_text("⚠️ سرویس آمار بازیکن فعلاً پاسخ نمی‌دهد؛ کمی بعد دوباره امتحان کن.", reply_markup=MENU)
     except Exception:
         log.exception("Player report failed")
-        await msg.edit_text("⚠️ موقع آماده‌کردن آمار خطایی رخ داد. لطفاً دوباره امتحان کن.", reply_markup=MENU)
+        await msg.edit_text("⚠️ خطا هنگام آماده‌سازی آمار. لاگ سرویس برای بررسی ثبت شد.", reply_markup=MENU)
+
+async def send_section(update, section_name):
+    path, label = SECTIONS[section_name]
+    url = urljoin(DDPER_URL, path)
+    msg = await update.effective_message.reply_text(f"⏳ در حال دریافت اطلاعات «{label}» از DDPER…")
+    try:
+        page = await asyncio.to_thread(fetch_site_section, path)
+        text = [f"🌐 <b>{label}</b>"]
+        if page["content"]:
+            text += ["", page["content"][:2700]]
+        else:
+            text += [
+                "",
+                "این بخش در سایت با داده‌های پویا بارگذاری می‌شود و متن کامل آن از HTML اولیه قابل دریافت نیست. برای دیدن داده‌های زنده، منبع سایت را باز کن؛ اتصال مستقیم به API این بخش هنوز نیاز به شناسایی مسیر دادهٔ آن دارد."
+            ]
+        text += ["", f'🔗 <a href="{url}">باز کردن بخش {label} در DDPER</a>']
+        await msg.edit_text("\\n".join(text), parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
+    except requests.RequestException as exc:
+        log.warning("DDPER section fetch failed for %s: %s", path, type(exc).__name__)
+        await msg.edit_text(f"⚠️ فعلاً نتوانستم اطلاعات این بخش را از سایت دریافت کنم.\\n<a href=\"{url}\">باز کردن {label}</a>", parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
-        "سلام! 👋\nمن آمار بازیکنان DDNet را مستقیماً داخل تلگرام نمایش می‌دهم.\n"
-        "از دکمهٔ آمار FXI استفاده کن یا نام بازیکن را جست‌وجو کن.",
+        "سلام! 👋 به ربات DDPER خوش آمدی.\\n\\n"
+        "از منو می‌توانی آمار بازیکنان را داخل تلگرام ببینی و بخش‌های اصلی سایت را باز کنی: رتبه‌بندی، مپ‌ها، کلن‌ها، وضعیت سرورها، اسکین‌ها، فروشگاه و دانلود.\\n"
+        "برای جستجوی آمار بازیکن از /player نام استفاده کن.",
         reply_markup=MENU,
     )
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_profile(update, "FXI", context)
+    await send_player(update, DEFAULT_PLAYER)
 
 async def search_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.effective_message.reply_text("نام بازیکن را بفرست: /player FXI")
+        await update.effective_message.reply_text("نام بازیکن را بفرست: /player FXI", reply_markup=MENU)
         return
     player = " ".join(context.args).strip()
-    if not re.fullmatch(r"[A-Za-z0-9_.\-\[\] ]{1,40}", player):
-        await update.effective_message.reply_text("نام بازیکن معتبر نیست.")
+    if not re.fullmatch(r"[A-Za-z0-9_.\\-\\[\\] ]{1,40}", player):
+        await update.effective_message.reply_text("نام بازیکن معتبر نیست؛ دوباره بررسی کن.", reply_markup=MENU)
         return
-    await send_profile(update, player, context)
+    await send_player(update, player)
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.effective_message.text or "").strip()
-    if text == "📊 آمار بازیکن FXI":
-        await profile(update, context)
+    if text == "📊 آمار بازیکن":
+        await send_player(update, DEFAULT_PLAYER)
     elif text == "🔎 جستجوی بازیکن":
-        await update.effective_message.reply_text("نام بازیکن را بفرست؛ نمونه: /player FXI", reply_markup=MENU)
-    elif text == "🌐 لینک پروفایل":
-        await update.effective_message.reply_text(f'🔗 پروفایل FXI: https://ddnet.org/players/FXI/', reply_markup=MENU)
+        await update.effective_message.reply_text("نام بازیکن را بفرست یا دستور /player NAME را استفاده کن؛ نمونه: /player FXI", reply_markup=MENU)
+    elif text in SECTIONS:
+        await send_section(update, text)
     elif text == "ℹ️ راهنما":
         await update.effective_message.reply_text(
-            "📚 راهنما\n/start — شروع\n/profile — آمار FXI\n/player NAME — آمار بازیکن دلخواه\n\n"
-            "آمار از API عمومی دریافت می‌شود و داخل همین پیام تلگرام نمایش داده می‌شود.",
+            "📚 راهنمای ربات DDPER\\n"
+            "/start — منوی اصلی\\n"
+            "/profile — آمار بازیکن پیش‌فرض\\n"
+            "/player NAME — جستجوی بازیکن\\n\\n"
+            "بخش‌های سایت: رتبه‌بندی، مپ‌ها، کلن‌ها، وضعیت سرورها، اسکین‌ها، فروشگاه و دانلود.\\n"
+            "آمار بازیکن از API عمومی DDNet دریافت می‌شود؛ صفحات دیگر از سایت DDPER خوانده می‌شوند. بخش‌هایی که با JavaScript بارگذاری می‌شوند ممکن است برای نمایش دادهٔ زنده به API اختصاصی سایت نیاز داشته باشند.",
             reply_markup=MENU,
         )
     else:
-        await update.effective_message.reply_text("برای دیدن آمار، «📊 آمار بازیکن FXI» یا /profile را بزن.", reply_markup=MENU)
+        await update.effective_message.reply_text("از دکمه‌های منو استفاده کن یا /player NAME را بفرست.", reply_markup=MENU)
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -199,7 +262,7 @@ def main():
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("player", search_player))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-    log.info("DDPER player bot starting (public JSON API mode)")
+    log.info("DDPER Telegram bot starting; site sections enabled")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
