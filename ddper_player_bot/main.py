@@ -205,8 +205,7 @@ async def send_player(update, player_name):
         data = await asyncio.to_thread(fetch_json_player, player_name)
         if not data:
             await msg.edit_text(
-                f"❌ بازیکن «{player_name}» در دیتابیس عمومی پیدا نشد. نام داخل بازی را دقیق بفرست.",
-                
+                f"❌ بازیکن «{player_name}» در دیتابیس عمومی پیدا نشد. نام داخل بازی را دقیق بفرست."
             )
             return
         report = make_player_report(player_name, data)
