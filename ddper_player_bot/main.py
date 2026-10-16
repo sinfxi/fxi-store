@@ -161,7 +161,7 @@ def fetch_json_player(name):
 
 def _fetch_site_section(path):
     url = urljoin(DDPER_URL, path)
-    response = requests.get(url, headers=HEADERS, timeout=(3, 7))
+    response = requests.get(url, headers=HEADERS, timeout=(2, 4))
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     title = clean(soup.title.get_text(" ", strip=True)) if soup.title else ""
@@ -169,12 +169,12 @@ def _fetch_site_section(path):
         node.decompose()
     main = soup.find("main") or soup.find("article") or soup.body or soup
     lines = []
-    for node in main.find_all(["h1", "h2", "h3", "p", "li", "tr"], limit=90):
-        text = clean(node.get_text(" ", strip=True))
-        if text and text not in lines and len(text) > 1:
-            lines.append(text)
+    for node in main.find_all(["h1", "h2", "h3", "p", "li", "tr"], limit=60):
+        value = clean(node.get_text(" ", strip=True))
+        if value and value not in lines and len(value) > 1:
+            lines.append(value)
     # Extract useful structured text when the page is rendered server-side.
-    content = "\n".join(lines[:32])
+    content = "\\n".join(lines[:24])
     return {"url": url, "title": title, "content": content}
 
 
@@ -290,22 +290,48 @@ async def send_player(update, player_name):
 async def send_section(update, section_name):
     path, label = SECTIONS[section_name]
     url = urljoin(DDPER_URL, path)
-    msg = await update.effective_message.reply_text(f"⏳ در حال دریافت اطلاعات «{label}» از DDPER…", reply_markup=MENU)
+    msg = await update.effective_message.reply_text(
+        f"⏳ در حال دریافت اطلاعات «{label}» از DDPER…", reply_markup=MENU
+    )
     try:
         page = await asyncio.to_thread(fetch_site_section, path)
-        text = [f"🌐 <b>{label}</b>"]
+        parts = [f"🌐 <b>{escape(label)}</b>"]
         if page["content"]:
-            text += ["", page["content"][:2700]]
+            # Escape untrusted site text so Telegram's HTML parser cannot reject it.
+            parts += ["", escape(page["content"][:2400])]
         else:
-            text += [
+            parts += [
                 "",
-                "این بخش در سایت با داده‌های پویا بارگذاری می‌شود و متن کامل آن از HTML اولیه قابل دریافت نیست. برای دیدن داده‌های زنده، منبع سایت را باز کن؛ اتصال مستقیم به API این بخش هنوز نیاز به شناسایی مسیر دادهٔ آن دارد."
+                "این بخش با داده‌های پویا بارگذاری می‌شود و متن کامل آن از HTML اولیه قابل دریافت نیست. برای دیدن اطلاعات زنده، صفحهٔ سایت را باز کن."
             ]
-        text += ["", f'🔗 <a href="{url}">باز کردن بخش {label} در DDPER</a>']
-        await msg.edit_text("\n".join(text), parse_mode="HTML", disable_web_page_preview=True)
+        parts += ["", f'🔗 <a href="{url}">باز کردن بخش {escape(label)} در DDPER</a>']
+        response_text = "\\n".join(parts)
+        try:
+            await msg.edit_text(response_text, parse_mode="HTML", disable_web_page_preview=True)
+        except Exception:
+            # Never leave the user with only a spinner if Telegram rejects editing.
+            log.exception("Could not edit section response for %s; sending a new message", path)
+            await update.effective_message.reply_text(
+                response_text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU
+            )
     except requests.RequestException as exc:
         log.warning("DDPER section fetch failed for %s: %s", path, type(exc).__name__)
-        await msg.edit_text(f"⚠️ فعلاً نتوانستم اطلاعات این بخش را از سایت دریافت کنم.\n<a href=\"{url}\">باز کردن {label}</a>", parse_mode="HTML", disable_web_page_preview=True)
+        fallback = f'⚠️ دریافت اطلاعات «{escape(label)}» از سایت ناموفق بود.\\n<a href="{url}">باز کردن صفحه</a>'
+        try:
+            await msg.edit_text(fallback, parse_mode="HTML", disable_web_page_preview=True)
+        except Exception:
+            await update.effective_message.reply_text(
+                f"⚠️ دریافت اطلاعات «{label}» ناموفق بود.\\n{url}", reply_markup=MENU
+            )
+    except Exception:
+        log.exception("Unexpected error while loading DDPER section %s", path)
+        try:
+            await msg.edit_text("⚠️ هنگام آماده‌سازی پاسخ خطایی رخ داد؛ دوباره امتحان کن.")
+        except Exception:
+            await update.effective_message.reply_text(
+                "⚠️ هنگام آماده‌سازی پاسخ خطایی رخ داد؛ دوباره امتحان کن.", reply_markup=MENU
+            )
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
