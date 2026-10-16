@@ -3,10 +3,9 @@ import re
 import json
 import logging
 import asyncio
-from urllib.parse import urljoin, urlparse
+from datetime import datetime, timezone
 
 import requests
-from bs4 import BeautifulSoup
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
@@ -15,7 +14,9 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("ddper-bot")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-PLAYER_URL = os.getenv("DDPER_PLAYER_URL", "https://ddper.ir/players/fxi#gores").strip()
+PLAYER_URL = os.getenv("DDPER_PLAYER_URL", "https://ddnet.org/players/FXI/").strip()
+API_URL = "https://ddnet.org/players/?json2={player}"
+
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is required. Add it in Railway Variables.")
 
@@ -24,226 +25,173 @@ MENU = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/json,*/*",
+    "User-Agent": "Mozilla/5.0 (compatible; DDPERStatsBot/1.0)",
+    "Accept": "application/json,text/plain,*/*",
 }
 
+def clean(value):
+    return re.sub(r"\\s+", " ", str(value or "")).strip()
 
-def clean_text(value):
-    return re.sub(r"\s+", " ", str(value or "")).strip()
-
-
-def flatten_json(value, prefix="", depth=0):
-    """Turn nested API/embedded JSON into readable label/value lines."""
-    rows = []
-    if depth > 5:
-        return rows
-    if isinstance(value, dict):
-        for key, item in value.items():
-            label = re.sub(r"([a-z])([A-Z])", r"\1 \2", str(key))
-            label = label.replace("_", " ").replace("-", " ").strip().title()
-            path = f"{prefix} · {label}" if prefix else label
-            if isinstance(item, (dict, list)):
-                rows.extend(flatten_json(item, path, depth + 1))
-            elif item is not None and str(item).strip():
-                rows.append((path, clean_text(item)))
-    elif isinstance(value, list):
-        for i, item in enumerate(value[:40]):
-            if isinstance(item, (dict, list)):
-                rows.extend(flatten_json(item, prefix, depth + 1))
-            elif item is not None and str(item).strip():
-                rows.append((prefix or "مقدار", clean_text(item)))
-    return rows
-
-
-def fetch_player_page(url):
-    session = requests.Session()
-    session.headers.update(HEADERS)
-    response = session.get(url.split("#", 1)[0], timeout=25)
+def request_player(name):
+    """Use DDNet's public JSON endpoint instead of scraping the JavaScript page."""
+    response = requests.get(API_URL.format(player=requests.utils.quote(name, safe="")), headers=HEADERS, timeout=20)
     response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
-    title = clean_text(soup.title.get_text(" ", strip=True)) if soup.title else ""
-    description_tag = soup.find("meta", attrs={"name": "description"})
-    description = clean_text(description_tag.get("content", "")) if description_tag else ""
+    data = response.json()
+    if not isinstance(data, dict) or not data.get("player"):
+        return None
+    return data
 
-    extracted = []
-    # Some sites put profile data in JSON-LD or framework hydration payloads.
-    for tag in soup.find_all("script"):
-        raw = tag.string or tag.get_text()
-        if not raw:
-            continue
-        typ = (tag.get("type") or "").lower()
-        if "json" in typ or raw.lstrip().startswith(("{", "[")):
-            try:
-                obj = json.loads(raw)
-                extracted.extend(flatten_json(obj))
-            except (ValueError, TypeError):
-                pass
+def rank_text(value):
+    if not isinstance(value, dict):
+        return "ثبت نشده"
+    rank = value.get("rank")
+    points = value.get("points")
+    if rank is None:
+        return "ثبت نشده"
+    if points is not None:
+        return f"رتبهٔ {rank:,} · {points:,} امتیاز"
+    return f"رتبهٔ {rank:,}"
 
-    # Extract visible server-rendered tables and headings.
-    for table in soup.find_all("table"):
-        for row in table.find_all("tr")[:120]:
-            cells = [clean_text(c.get_text(" ", strip=True)) for c in row.find_all(["th", "td"])]
-            cells = [c for c in cells if c]
-            if len(cells) >= 2:
-                extracted.append((cells[0], " | ".join(cells[1:])))
-            elif cells:
-                extracted.append(("اطلاعات", cells[0]))
-
-    for node in soup(["script", "style", "noscript", "svg", "nav", "footer", "header"]):
-        node.decompose()
-    main = soup.find("main") or soup.find("article") or soup.body or soup
-    visible = clean_text(main.get_text(" ", strip=True))
-
-    # If the page is a JavaScript app, inspect its same-site JS bundles for API paths,
-    # then try only plausible public player/profile endpoints for this requested slug.
-    api_rows = []
-    slug = urlparse(url).path.rstrip("/").split("/")[-1] or "fxi"
-    script_urls = []
-    for tag in soup.find_all("script", src=True):
-        script_urls.append(urljoin(response.url, tag["src"]))
-    # Re-fetching the cleaned soup loses script tags; use the original response HTML instead.
-    original_soup = BeautifulSoup(response.text, "html.parser")
-    script_urls = [urljoin(response.url, tag["src"]) for tag in original_soup.find_all("script", src=True)]
-    api_paths = set()
-    for script_url in script_urls[:15]:
-        try:
-            js = session.get(script_url, timeout=12).text
-            for match in re.findall(r"""['"`]([^'"\`]{0,100}(?:/api/|api/|players/|player/|profile|stats)[^'"\`]{0,120})['"`]""", js, re.I):
-                candidate = match.replace("\\/", "/")
-                if candidate.startswith("/") and len(candidate) < 180:
-                    api_paths.add(candidate)
-        except requests.RequestException:
-            continue
-
-    # Try API routes actually referenced by the site's own JS bundle.
-    base = f"{urlparse(response.url).scheme}://{urlparse(response.url).netloc}"
-    for path in sorted(api_paths, key=lambda x: (("api" not in x.lower()), len(x)))[:25]:
-        candidate = path.replace(":slug", slug).replace(":username", slug).replace("{slug}", slug).replace("{username}", slug).replace("[slug]", slug)
-        if any(token in candidate.lower() for token in ("players", "player", "profile", "stats", "api")):
-            full = urljoin(base, candidate)
-            try:
-                api_response = session.get(full, headers={"Accept": "application/json"}, timeout=8)
-                if api_response.ok and "json" in api_response.headers.get("content-type", "").lower():
-                    obj = api_response.json()
-                    found = flatten_json(obj)
-                    if found:
-                        api_rows.extend(found)
-            except (requests.RequestException, ValueError):
-                pass
-
-    # De-duplicate while preserving order; avoid returning only menu boilerplate.
-    rows, seen = [], set()
-    for label, value in api_rows + extracted:
-        item = (clean_text(label), clean_text(value))
-        if item[0] and item[1] and item not in seen:
-            seen.add(item)
-            rows.append(item)
-
-    return {
-        "url": url,
-        "title": title,
-        "description": description,
-        "visible": visible[:12000],
-        "rows": rows[:180],
-        "status": response.status_code,
-        "content_type": response.headers.get("content-type", ""),
-    }
-
-
-def format_report(data):
-    parts = ["🎮 <b>اطلاعات بازیکن DDPER</b>"]
-    if data.get("title"):
-        parts.append(f"👤 <b>پروفایل:</b> {data['title']}")
-    if data.get("description"):
-        parts.append(f"📝 {data['description']}")
-    rows = data.get("rows", [])
-    # Prioritize useful game/stat terms over framework metadata.
-    priority = ("rank", "point", "score", "finish", "map", "time", "play", "server", "team", "level", "record", "gores", "player", "name", "date", "country", "total")
-    rows = sorted(rows, key=lambda item: (not any(p in item[0].lower() for p in priority), len(item[0])))
-    lines = []
-    for label, value in rows:
-        if label.lower() in ("props", "children", "data", "meta", "head", "script", "style"):
-            continue
-        line = f"• <b>{label[:80]}:</b> {value[:180]}"
-        if line not in lines:
-            lines.append(line)
-    if lines:
-        parts.append("📊 <b>آمار استخراج‌شده:</b>\n" + "\n".join(lines[:45]))
-    else:
-        visible = data.get("visible", "")
-        if visible and len(visible) > 80:
-            parts.append("📊 <b>اطلاعات صفحه:</b>\n" + visible[:2200])
-        else:
-            parts.append(
-                "⚠️ صفحه باز شد، اما آمار در HTML معمولی نیست و احتمالاً با JavaScript بارگذاری می‌شود. "
-                "برای نمایش آمار واقعی باید API عمومی‌ای که خود سایت استفاده می‌کند شناسایی شود؛ فعلاً داده‌ای را حدس نمی‌زنم."
-            )
-    parts.append(f'🔗 <a href="{data["url"]}">منبع پروفایل</a>')
-    return "\n\n".join(parts)
-
-
-async def send_profile(update, url, context):
-    msg = await update.effective_message.reply_text("⏳ دارم آمار را دریافت و برای نمایش داخل تلگرام آماده می‌کنم…")
+def seconds_text(value):
     try:
-        data = await asyncio.to_thread(fetch_player_page, url)
-        report = format_report(data)
+        seconds = int(float(value))
+    except (TypeError, ValueError):
+        return clean(value) or "—"
+    hours, rem = divmod(seconds, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        return f"{hours} ساعت و {minutes} دقیقه"
+    if minutes:
+        return f"{minutes} دقیقه و {seconds} ثانیه"
+    return f"{seconds} ثانیه"
+
+def timestamp_text(value):
+    try:
+        return datetime.fromtimestamp(float(value), timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    except (TypeError, ValueError, OSError):
+        return "—"
+
+def make_report(player_name, data):
+    points = data.get("points") or {}
+    team_rank = data.get("team_rank") or {}
+    rank = data.get("rank") or {}
+    year = data.get("points_last_year") or {}
+    month = data.get("points_last_month") or {}
+    week = data.get("points_last_week") or {}
+    favorite = data.get("favorite_server") or {}
+    first = data.get("first_finish") or {}
+    recent = data.get("last_finishes") or []
+    total_points = points.get("total", "—")
+    earned_points = points.get("points", "—")
+    player = clean(data.get("player") or player_name)
+
+    lines = [
+        f"🎮 <b>آمار بازیکن: {player}</b>",
+        "",
+        "🌍 <b>آمار کلی</b>",
+        f"🏆 رتبهٔ جهانی: <b>{rank_text(rank)}</b>",
+        f"🤝 رتبهٔ تیمی: <b>{rank_text(team_rank)}</b>",
+        f"⭐ امتیاز کل بازیکنان: <b>{total_points:,}</b>" if isinstance(total_points, int) else f"⭐ کل امتیاز موجود در سیستم: <b>{total_points}</b>",
+        f"💠 امتیاز بازیکن: <b>{earned_points:,}</b>" if isinstance(earned_points, int) else f"💠 امتیاز بازیکن: <b>{earned_points}</b>",
+        f"📅 امتیاز ۷ روز اخیر: <b>{rank_text(week)}</b>",
+        f"🗓️ امتیاز ۳۰ روز اخیر: <b>{rank_text(month)}</b>",
+        f"📆 امتیاز ۳۶۵ روز اخیر: <b>{rank_text(year)}</b>",
+        f"🖥️ سرور محبوب: <b>{clean(favorite.get('server', '—'))}</b>",
+    ]
+
+    if first:
+        lines += [
+            "",
+            "🥇 <b>اولین رکورد</b>",
+            f"🗺️ نقشه: <b>{clean(first.get('map', '—'))}</b>",
+            f"⏱️ زمان: <b>{seconds_text(first.get('time', '—'))}</b>",
+            f"🕒 تاریخ: <b>{timestamp_text(first.get('timestamp'))}</b>",
+        ]
+
+    lines += ["", "🔥 <b>۱۰ رکورد اخیر</b>"]
+    if recent:
+        for index, item in enumerate(recent[:10], 1):
+            server = clean(item.get("type", ""))
+            country = clean(item.get("country", ""))
+            place = clean(item.get("map", "نقشه نامشخص"))
+            time_value = seconds_text(item.get("time", "—"))
+            stamp = timestamp_text(item.get("timestamp"))
+            suffix = " · ".join(x for x in (server, country) if x)
+            lines.append(f"{index}. <b>{place}</b> — {time_value}")
+            if suffix:
+                lines.append(f"   <i>{suffix}</i>")
+            lines.append(f"   <i>{stamp}</i>")
+    else:
+        lines.append("برای این بازیکن رکورد اخیری در خروجی API ثبت نشده است.")
+
+    hours = data.get("hours_played_past_365_days")
+    if hours is not None:
+        lines += ["", f"⏳ ساعت بازی در ۳۶۵ روز اخیر: <b>{hours}</b>"]
+
+    lines += ["", f'🔗 <a href="https://ddnet.org/players/{requests.utils.quote(player, safe="")}/">مشاهدهٔ پروفایل</a>']
+    return "\n".join(lines)
+
+async def send_profile(update, player_name, context):
+    msg = await update.effective_message.reply_text("⏳ دارم آمار واقعی بازیکن را از API دریافت می‌کنم…")
+    try:
+        data = await asyncio.to_thread(request_player, player_name)
+        if not data:
+            await msg.edit_text(
+                f"❌ بازیکن «{player_name}» در دیتابیس عمومی پیدا نشد یا هنوز آماری برایش ثبت نشده.\n"
+                "اسم بازیکن را دقیقاً مثل پروفایل سایت بفرست.",
+                reply_markup=MENU,
+            )
+            return
+        report = make_report(player_name, data)
         if len(report) > 3900:
-            report = report[:3750] + "\n\n…\n" + f'🔗 <a href="{url}">ادامه در سایت</a>'
-        await msg.edit_text(report, parse_mode="HTML", disable_web_page_preview=True)
+            report = report[:3750] + "\n…\n" + f'🔗 <a href="https://ddnet.org/players/{requests.utils.quote(player_name, safe="")}/">پروفایل و رکوردهای بیشتر</a>'
+        await msg.edit_text(report, parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
     except requests.RequestException as exc:
-        log.warning("DDPER request failed: %s", type(exc).__name__)
-        await msg.edit_text(
-            "⚠️ نتونستم اطلاعات را از DDPER دریافت کنم؛ ممکن است سایت موقتاً در دسترس نباشد یا درخواست خودکار را محدود کرده باشد.\n\n"
-            f'🔗 <a href="{url}">پروفایل FXI</a>',
-            parse_mode="HTML", disable_web_page_preview=True,
-        )
+        log.warning("Player API request failed: %s", type(exc).__name__)
+        await msg.edit_text("⚠️ سرویس آمار فعلاً پاسخ نمی‌دهد. چند لحظه بعد دوباره «آمار بازیکن FXI» را بزن.", reply_markup=MENU)
+    except (ValueError, json.JSONDecodeError):
+        log.exception("Invalid JSON from player API")
+        await msg.edit_text("⚠️ پاسخ سرویس آمار قابل‌خواندن نبود؛ لطفاً کمی بعد دوباره امتحان کن.", reply_markup=MENU)
     except Exception:
-        log.exception("Profile extraction failed")
-        await msg.edit_text("⚠️ موقع استخراج آمار خطایی رخ داد. لطفاً کمی بعد دوباره امتحان کن.")
+        log.exception("Player report failed")
+        await msg.edit_text("⚠️ موقع آماده‌کردن آمار خطایی رخ داد. لطفاً دوباره امتحان کن.", reply_markup=MENU)
 
-
-async def start(update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
-        "سلام! 👋\nمن ربات نمایش آمار بازیکنان DDPER هستم.\n"
-        "از منو آمار FXI را ببین یا نام بازیکن را جست‌وجو کن. اطلاعات تا جای ممکن داخل همین چت نمایش داده می‌شود.",
+        "سلام! 👋\nمن آمار بازیکنان DDNet را مستقیماً داخل تلگرام نمایش می‌دهم.\n"
+        "از دکمهٔ آمار FXI استفاده کن یا نام بازیکن را جست‌وجو کن.",
         reply_markup=MENU,
     )
 
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_profile(update, "FXI", context)
 
-async def profile(update, context):
-    await send_profile(update, PLAYER_URL, context)
-
-
-async def search_player(update, context):
-    args = context.args
-    if not args:
-        await update.effective_message.reply_text("نام بازیکن را بفرست: /player fxi")
+async def search_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.effective_message.reply_text("نام بازیکن را بفرست: /player FXI")
         return
-    player = " ".join(args).strip()
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", player):
-        await update.effective_message.reply_text("نام بازیکن معتبر نیست؛ از حروف انگلیسی، عدد، نقطه، خط تیره و زیرخط استفاده کن.")
+    player = " ".join(context.args).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.\-\[\] ]{1,40}", player):
+        await update.effective_message.reply_text("نام بازیکن معتبر نیست.")
         return
-    await send_profile(update, f"https://ddper.ir/players/{player}#gores", context)
+    await send_profile(update, player, context)
 
-
-async def message_handler(update, context):
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.effective_message.text or "").strip()
     if text == "📊 آمار بازیکن FXI":
         await profile(update, context)
     elif text == "🔎 جستجوی بازیکن":
-        await update.effective_message.reply_text("نام بازیکن را بفرست یا دستور /player NAME را استفاده کن؛ نمونه: /player fxi")
+        await update.effective_message.reply_text("نام بازیکن را بفرست؛ نمونه: /player FXI", reply_markup=MENU)
     elif text == "🌐 لینک پروفایل":
-        await update.effective_message.reply_text(f"🔗 لینک پروفایل FXI:\n{PLAYER_URL}", reply_markup=MENU)
+        await update.effective_message.reply_text(f'🔗 پروفایل FXI: https://ddnet.org/players/FXI/', reply_markup=MENU)
     elif text == "ℹ️ راهنما":
         await update.effective_message.reply_text(
-            "📚 راهنما\n/start — شروع\n/profile — نمایش آمار FXI\n/player NAME — آمار بازیکن دیگر\n\n"
-            "ربات اطلاعات عمومی را می‌خواند و آمار ساختگی تولید نمی‌کند.",
+            "📚 راهنما\n/start — شروع\n/profile — آمار FXI\n/player NAME — آمار بازیکن دلخواه\n\n"
+            "آمار از API عمومی دریافت می‌شود و داخل همین پیام تلگرام نمایش داده می‌شود.",
             reply_markup=MENU,
         )
     else:
-        await update.effective_message.reply_text("برای نمایش آمار، «📊 آمار بازیکن FXI» یا /profile را بزن.", reply_markup=MENU)
-
+        await update.effective_message.reply_text("برای دیدن آمار، «📊 آمار بازیکن FXI» یا /profile را بزن.", reply_markup=MENU)
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -251,9 +199,8 @@ def main():
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("player", search_player))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-    log.info("DDPER player bot starting")
+    log.info("DDPER player bot starting (public JSON API mode)")
     app.run_polling(drop_pending_updates=True)
-
 
 if __name__ == "__main__":
     main()
