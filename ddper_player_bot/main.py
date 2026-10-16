@@ -56,7 +56,7 @@ LINKS = {
 }
 
 def clean(value):
-    return re.sub(r"\\s+", " ", str(value or "")).strip()
+    return re.sub(r"\s+", " ", str(value or "")).strip()
 
 def fetch_json_player(name):
     response = requests.get(
@@ -85,7 +85,7 @@ def fetch_site_section(path):
         if text and text not in lines and len(text) > 1:
             lines.append(text)
     # Extract useful structured text when the page is rendered server-side.
-    content = "\\n".join(lines[:32])
+    content = "\n".join(lines[:32])
     return {"url": url, "title": title, "content": content}
 
 def rank_text(value):
@@ -171,7 +171,7 @@ def make_player_report(player_name, data):
     if hours is not None:
         lines += ["", f"⏳ ساعت بازی در ۳۶۵ روز اخیر: <b>{clean(hours)}</b>"]
     lines += ["", f'🌐 <a href="{DDPER_URL}/players/{quote(player, safe="")}">پروفایل در سایت DDPER</a>']
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 async def send_player(update, player_name):
     msg = await update.effective_message.reply_text("⏳ در حال دریافت آمار بازیکن…", reply_markup=MENU)
@@ -185,7 +185,7 @@ async def send_player(update, player_name):
             return
         report = make_player_report(player_name, data)
         if len(report) > 3900:
-            report = report[:3650] + f'\\n…\\n<a href="{DDPER_URL}/players/{quote(player_name, safe="")}">مشاهده پروفایل کامل</a>'
+            report = report[:3650] + f'\n…\n<a href="{DDPER_URL}/players/{quote(player_name, safe="")}">مشاهده پروفایل کامل</a>'
         await msg.edit_text(report, parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
     except requests.RequestException as exc:
         log.warning("Player API failed: %s", type(exc).__name__)
@@ -209,15 +209,15 @@ async def send_section(update, section_name):
                 "این بخش در سایت با داده‌های پویا بارگذاری می‌شود و متن کامل آن از HTML اولیه قابل دریافت نیست. برای دیدن داده‌های زنده، منبع سایت را باز کن؛ اتصال مستقیم به API این بخش هنوز نیاز به شناسایی مسیر دادهٔ آن دارد."
             ]
         text += ["", f'🔗 <a href="{url}">باز کردن بخش {label} در DDPER</a>']
-        await msg.edit_text("\\n".join(text), parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
+        await msg.edit_text("\n".join(text), parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
     except requests.RequestException as exc:
         log.warning("DDPER section fetch failed for %s: %s", path, type(exc).__name__)
-        await msg.edit_text(f"⚠️ فعلاً نتوانستم اطلاعات این بخش را از سایت دریافت کنم.\\n<a href=\"{url}\">باز کردن {label}</a>", parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
+        await msg.edit_text(f"⚠️ فعلاً نتوانستم اطلاعات این بخش را از سایت دریافت کنم.\n<a href=\"{url}\">باز کردن {label}</a>", parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
-        "سلام! 👋 به ربات DDPER خوش آمدی.\\n\\n"
-        "از منو می‌توانی آمار بازیکنان را داخل تلگرام ببینی و بخش‌های اصلی سایت را باز کنی: رتبه‌بندی، مپ‌ها، کلن‌ها، وضعیت سرورها، اسکین‌ها، فروشگاه و دانلود.\\n"
+        "سلام! 👋 به ربات DDPER خوش آمدی.\n\n"
+        "از منو می‌توانی آمار بازیکنان را داخل تلگرام ببینی و بخش‌های اصلی سایت را باز کنی: رتبه‌بندی، مپ‌ها، کلن‌ها، وضعیت سرورها، اسکین‌ها، فروشگاه و دانلود.\n"
         "برای جستجوی آمار بازیکن از /player نام استفاده کن.",
         reply_markup=MENU,
     )
@@ -230,7 +230,7 @@ async def search_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text("نام بازیکن را بفرست: /player FXI", reply_markup=MENU)
         return
     player = " ".join(context.args).strip()
-    if not re.fullmatch(r"[A-Za-z0-9_.\\-\\[\\] ]{1,40}", player):
+    if not re.fullmatch(r"[A-Za-z0-9_.\-\[\] ]{1,40}", player):
         await update.effective_message.reply_text("نام بازیکن معتبر نیست؛ دوباره بررسی کن.", reply_markup=MENU)
         return
     await send_player(update, player)
@@ -245,11 +245,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_section(update, text)
     elif text == "ℹ️ راهنما":
         await update.effective_message.reply_text(
-            "📚 راهنمای ربات DDPER\\n"
-            "/start — منوی اصلی\\n"
-            "/profile — آمار بازیکن پیش‌فرض\\n"
-            "/player NAME — جستجوی بازیکن\\n\\n"
-            "بخش‌های سایت: رتبه‌بندی، مپ‌ها، کلن‌ها، وضعیت سرورها، اسکین‌ها، فروشگاه و دانلود.\\n"
+            "📚 راهنمای ربات DDPER\n"
+            "/start — منوی اصلی\n"
+            "/profile — آمار بازیکن پیش‌فرض\n"
+            "/player NAME — جستجوی بازیکن\n\n"
+            "بخش‌های سایت: رتبه‌بندی، مپ‌ها، کلن‌ها، وضعیت سرورها، اسکین‌ها، فروشگاه و دانلود.\n"
             "آمار بازیکن از API عمومی DDNet دریافت می‌شود؛ صفحات دیگر از سایت DDPER خوانده می‌شوند. بخش‌هایی که با JavaScript بارگذاری می‌شوند ممکن است برای نمایش دادهٔ زنده به API اختصاصی سایت نیاز داشته باشند.",
             reply_markup=MENU,
         )
