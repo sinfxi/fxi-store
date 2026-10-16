@@ -5,6 +5,9 @@ import logging
 import asyncio
 import time
 import threading
+import sqlite3
+import random
+from html import escape
 from datetime import datetime, timezone
 from urllib.parse import quote, urljoin
 
@@ -27,6 +30,8 @@ if not BOT_TOKEN:
 MENU = ReplyKeyboardMarkup(
     [
         ["📊 آمار بازیکن", "🔎 جستجوی بازیکن"],
+        ["⚖️ مقایسه بازیکن‌ها", "⭐ بازیکن‌های محبوب"],
+        ["🕘 جستجوهای اخیر", "🎲 بازیکن تصادفی"],
         ["🏆 رتبه‌بندی", "🗺 مپ‌ها"],
         ["👥 کلن‌ها", "🖥 وضعیت سرورها"],
         ["🎨 اسکین‌ها", "🛒 فروشگاه"],
@@ -34,6 +39,45 @@ MENU = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True,
 )
+DB_PATH = os.getenv("DDPER_DB_PATH", "/tmp/ddper_bot.sqlite3")
+
+
+def db_connect():
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.execute("CREATE TABLE IF NOT EXISTS favorites (user_id INTEGER NOT NULL, player TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, player))")
+    conn.execute("CREATE TABLE IF NOT EXISTS recent (user_id INTEGER NOT NULL, player TEXT NOT NULL, searched_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+    conn.commit()
+    return conn
+
+
+def save_search(user_id, player):
+    try:
+        with db_connect() as conn:
+            conn.execute("INSERT INTO recent(user_id, player) VALUES (?, ?)", (user_id, player))
+            conn.execute("DELETE FROM recent WHERE user_id=? AND rowid NOT IN (SELECT rowid FROM recent WHERE user_id=? ORDER BY searched_at DESC, rowid DESC LIMIT 10)", (user_id, user_id))
+    except sqlite3.Error:
+        log.exception("Could not save player search")
+
+
+def toggle_favorite(user_id, player):
+    with db_connect() as conn:
+        exists = conn.execute("SELECT 1 FROM favorites WHERE user_id=? AND player=? COLLATE NOCASE", (user_id, player)).fetchone() is not None
+        if exists:
+            conn.execute("DELETE FROM favorites WHERE user_id=? AND player=? COLLATE NOCASE", (user_id, player))
+            return False
+        conn.execute("INSERT OR IGNORE INTO favorites(user_id, player) VALUES (?, ?)", (user_id, player))
+        return True
+
+
+def get_user_players(table, user_id, limit=10):
+    if table not in ("favorites", "recent"):
+        return []
+    order = "created_at DESC" if table == "favorites" else "searched_at DESC, rowid DESC"
+    with db_connect() as conn:
+        rows = conn.execute(f"SELECT player FROM {table} WHERE user_id=? ORDER BY {order} LIMIT ?", (user_id, limit)).fetchall()
+        return [row[0] for row in rows]
+
+
 CACHE_TTL = 120
 _CACHE = {}
 _CACHE_LOCK = threading.Lock()
@@ -200,6 +244,7 @@ def make_player_report(player_name, data):
     return "\n".join(lines)
 
 async def send_player(update, player_name):
+    save_search(update.effective_user.id if update.effective_user else 0, player_name)
     msg = await update.effective_message.reply_text("⏳ در حال دریافت آمار بازیکن…", reply_markup=MENU)
     try:
         data = await asyncio.to_thread(fetch_json_player, player_name)
@@ -264,6 +309,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.effective_message.text or "").strip()
     if text == "📊 آمار بازیکن":
         await send_player(update, DEFAULT_PLAYER)
+    elif text == "⚖️ مقایسه بازیکن‌ها":
+        await update.effective_message.reply_text("برای مقایسه دو بازیکن از این دستور استفاده کن:\n/compare FXI PlayerName", reply_markup=MENU)
+    elif text == "⭐ بازیکن‌های محبوب":
+        await list_favorites(update, context)
+    elif text == "🕘 جستجوهای اخیر":
+        await recent_searches(update, context)
+    elif text == "🎲 بازیکن تصادفی":
+        await random_player(update, context)
     elif text == "🔎 جستجوی بازیکن":
         await update.effective_message.reply_text("نام بازیکن را بفرست یا دستور /player NAME را استفاده کن؛ نمونه: /player FXI", reply_markup=MENU)
     elif text in SECTIONS:
@@ -273,7 +326,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📚 راهنمای ربات DDPER\n"
             "/start — منوی اصلی\n"
             "/profile — آمار بازیکن پیش‌فرض\n"
-            "/player NAME — جستجوی بازیکن\n\n"
+            "/player NAME — جستجوی بازیکن\n"
+            "/compare NAME1 NAME2 — مقایسه دو بازیکن\n"
+            "/favorite NAME — افزودن/حذف بازیکن محبوب\n"
+            "/favorites — فهرست محبوب‌ها\n"
+            "/recent — آخرین جستجوها\n\n"
             "بخش‌های سایت: رتبه‌بندی، مپ‌ها، کلن‌ها، وضعیت سرورها، اسکین‌ها، فروشگاه و دانلود.\n"
             "آمار بازیکن از API عمومی DDNet دریافت می‌شود؛ صفحات دیگر از سایت DDPER خوانده می‌شوند. بخش‌هایی که با JavaScript بارگذاری می‌شوند ممکن است برای نمایش دادهٔ زنده به API اختصاصی سایت نیاز داشته باشند.",
             reply_markup=MENU,
@@ -286,6 +343,10 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("player", search_player))
+    app.add_handler(CommandHandler("compare", compare_players))
+    app.add_handler(CommandHandler("favorite", favorite_command))
+    app.add_handler(CommandHandler("favorites", list_favorites))
+    app.add_handler(CommandHandler("recent", recent_searches))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     log.info("DDPER Telegram bot starting; site sections enabled")
     app.run_polling(drop_pending_updates=True)
