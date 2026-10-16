@@ -174,7 +174,7 @@ def _fetch_site_section(path):
         if value and value not in lines and len(value) > 1:
             lines.append(value)
     # Extract useful structured text when the page is rendered server-side.
-    content = "\\n".join(lines[:24])
+    content = "\n".join(lines[:24])
     return {"url": url, "title": title, "content": content}
 
 
@@ -305,7 +305,7 @@ async def send_section(update, section_name):
                 "این بخش با داده‌های پویا بارگذاری می‌شود و متن کامل آن از HTML اولیه قابل دریافت نیست. برای دیدن اطلاعات زنده، صفحهٔ سایت را باز کن."
             ]
         parts += ["", f'🔗 <a href="{url}">باز کردن بخش {escape(label)} در DDPER</a>']
-        response_text = "\\n".join(parts)
+        response_text = "\n".join(parts)
         try:
             await msg.edit_text(response_text, parse_mode="HTML", disable_web_page_preview=True)
         except Exception:
@@ -316,12 +316,12 @@ async def send_section(update, section_name):
             )
     except requests.RequestException as exc:
         log.warning("DDPER section fetch failed for %s: %s", path, type(exc).__name__)
-        fallback = f'⚠️ دریافت اطلاعات «{escape(label)}» از سایت ناموفق بود.\\n<a href="{url}">باز کردن صفحه</a>'
+        fallback = f'⚠️ دریافت اطلاعات «{escape(label)}» از سایت ناموفق بود.\n<a href="{url}">باز کردن صفحه</a>'
         try:
             await msg.edit_text(fallback, parse_mode="HTML", disable_web_page_preview=True)
         except Exception:
             await update.effective_message.reply_text(
-                f"⚠️ دریافت اطلاعات «{label}» ناموفق بود.\\n{url}", reply_markup=MENU
+                f"⚠️ دریافت اطلاعات «{label}» ناموفق بود.\n{url}", reply_markup=MENU
             )
     except Exception:
         log.exception("Unexpected error while loading DDPER section %s", path)
