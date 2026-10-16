@@ -78,21 +78,44 @@ def get_user_players(table, user_id, limit=10):
         return [row[0] for row in rows]
 
 
-CACHE_TTL = 120
+CACHE_TTL = 180
 _CACHE = {}
 _CACHE_LOCK = threading.Lock()
+_KEY_LOCKS = {}
 
 
 def cached(key, ttl, loader):
+    # Cache hits return immediately; only one request per key runs on a cold cache.
     now = time.monotonic()
     with _CACHE_LOCK:
         entry = _CACHE.get(key)
         if entry and now - entry[0] < ttl:
             return entry[1]
-    value = loader()
-    with _CACHE_LOCK:
-        _CACHE[key] = (time.monotonic(), value)
-    return value
+        key_lock = _KEY_LOCKS.setdefault(key, threading.Lock())
+    with key_lock:
+        now = time.monotonic()
+        with _CACHE_LOCK:
+            entry = _CACHE.get(key)
+            if entry and now - entry[0] < ttl:
+                return entry[1]
+            stale_value = entry[1] if entry else None
+        try:
+            value = loader()
+        except Exception:
+            # If the upstream API has a brief outage, serve the last known result.
+            if stale_value is not None:
+                log.warning("Upstream fetch failed for %s; serving stale cached data", key)
+                return stale_value
+            raise
+        with _CACHE_LOCK:
+            _CACHE[key] = (time.monotonic(), value)
+            if len(_CACHE) > 1000:
+                cutoff = time.monotonic() - 900
+                for cache_key, (stamp, _) in list(_CACHE.items()):
+                    if stamp < cutoff:
+                        _CACHE.pop(cache_key, None)
+                        _KEY_LOCKS.pop(cache_key, None)
+        return value
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; DDPERTelegramBot/1.0)",
@@ -124,7 +147,7 @@ def _fetch_json_player(name):
     response = requests.get(
         DDNET_API_URL.format(player=quote(name, safe="")),
         headers=HEADERS,
-        timeout=(3, 7),
+        timeout=(2, 4),
     )
     response.raise_for_status()
     data = response.json()
@@ -134,7 +157,7 @@ def _fetch_json_player(name):
 
 
 def fetch_json_player(name):
-    return cached("player:" + name.casefold(), 45, lambda: _fetch_json_player(name))
+    return cached("player:" + name.casefold(), 180, lambda: _fetch_json_player(name))
 
 def _fetch_site_section(path):
     url = urljoin(DDPER_URL, path)
@@ -156,7 +179,7 @@ def _fetch_site_section(path):
 
 
 def fetch_site_section(path):
-    return cached("section:" + path, 300, lambda: _fetch_site_section(path))
+    return cached("section:" + path, 600, lambda: _fetch_site_section(path))
 
 def rank_text(value):
     if not isinstance(value, dict):
