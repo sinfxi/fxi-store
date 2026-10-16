@@ -30,7 +30,7 @@ HEADERS = {
 }
 
 def clean(value):
-    return re.sub(r"\\s+", " ", str(value or "")).strip()
+    return re.sub(r"\s+", " ", str(value or "")).strip()
 
 def request_player(name):
     """Use DDNet's public JSON endpoint instead of scraping the JavaScript page."""
