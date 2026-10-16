@@ -338,6 +338,79 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.effective_message.reply_text("از دکمه‌های منو استفاده کن یا /player NAME را بفرست.", reply_markup=MENU)
 
+async def compare_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 2:
+        await update.effective_message.reply_text("دو نام بازیکن بده؛ مثال: /compare FXI PlayerName", reply_markup=MENU)
+        return
+    names = context.args
+    if any(not re.fullmatch(r"[A-Za-z0-9_.\-\[\] ]{1,40}", name) for name in names):
+        await update.effective_message.reply_text("نام بازیکن معتبر نیست.", reply_markup=MENU)
+        return
+    status = await update.effective_message.reply_text("⚖️ دارم آمار دو بازیکن را مقایسه می‌کنم…", reply_markup=MENU)
+    try:
+        a, b = await asyncio.gather(asyncio.to_thread(fetch_json_player, names[0]), asyncio.to_thread(fetch_json_player, names[1]))
+        if not a or not b:
+            await status.edit_text("یکی از بازیکن‌ها پیدا نشد؛ نام‌ها را بررسی کن.")
+            return
+        def points(data):
+            value = (data.get("points") or {}).get("points", 0)
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0
+        p1, p2 = points(a), points(b)
+        winner = names[0] if p1 > p2 else names[1] if p2 > p1 else "مساوی"
+        report = (
+            f"⚖️ <b>مقایسه بازیکنان</b>\n\n"
+            f"🎮 <b>{escape(names[0])}</b>\n⭐ امتیاز: <b>{p1:,.0f}</b>\n🏆 رتبه: <b>{escape(rank_text(a.get('rank') or {}))}</b>\n\n"
+            f"🎮 <b>{escape(names[1])}</b>\n⭐ امتیاز: <b>{p2:,.0f}</b>\n🏆 رتبه: <b>{escape(rank_text(b.get('rank') or {}))}</b>\n\n"
+            f"🥇 برتری امتیاز: <b>{escape(winner)}</b>"
+        )
+        await status.edit_text(report, parse_mode="HTML")
+    except Exception:
+        log.exception("Compare failed")
+        await status.edit_text("⚠️ مقایسه فعلاً انجام نشد؛ کمی بعد دوباره امتحان کن.")
+
+
+async def favorite_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.effective_message.reply_text("برای افزودن یا حذف بازیکن محبوب: /favorite FXI", reply_markup=MENU)
+        return
+    player = " ".join(context.args).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.\-\[\] ]{1,40}", player):
+        await update.effective_message.reply_text("نام بازیکن معتبر نیست.", reply_markup=MENU)
+        return
+    added = toggle_favorite(update.effective_user.id, player)
+    label = "⭐ به فهرست محبوب‌ها اضافه شد: " if added else "🗑 از فهرست محبوب‌ها حذف شد: "
+    await update.effective_message.reply_text(label + player, reply_markup=MENU)
+
+
+async def list_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    players = get_user_players("favorites", update.effective_user.id)
+    if not players:
+        await update.effective_message.reply_text("هنوز بازیکن محبوبی نداری. برای افزودن: /favorite FXI", reply_markup=MENU)
+        return
+    body = "\n".join("• " + escape(p) + " — /player " + escape(p) for p in players)
+    await update.effective_message.reply_text("⭐ <b>بازیکن‌های محبوب تو</b>\n" + body, parse_mode="HTML", reply_markup=MENU)
+
+
+async def recent_searches(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    players = get_user_players("recent", update.effective_user.id)
+    if not players:
+        await update.effective_message.reply_text("هنوز جستجویی ثبت نشده؛ با /player NAME شروع کن.", reply_markup=MENU)
+        return
+    body = "\n".join("• " + escape(p) + " — /player " + escape(p) for p in players)
+    await update.effective_message.reply_text("🕘 <b>آخرین جستجوها</b>\n" + body, parse_mode="HTML", reply_markup=MENU)
+
+
+async def random_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    players = get_user_players("favorites", update.effective_user.id)
+    if not players:
+        await update.effective_message.reply_text("برای انتخاب تصادفی، اول چند بازیکن با /favorite NAME ذخیره کن.", reply_markup=MENU)
+        return
+    await send_player(update, random.choice(players))
+
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
