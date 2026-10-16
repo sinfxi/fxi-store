@@ -3,6 +3,8 @@ import re
 import json
 import logging
 import asyncio
+import time
+import threading
 from datetime import datetime, timezone
 from urllib.parse import quote, urljoin
 
@@ -32,6 +34,22 @@ MENU = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True,
 )
+CACHE_TTL = 120
+_CACHE = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def cached(key, ttl, loader):
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        entry = _CACHE.get(key)
+        if entry and now - entry[0] < ttl:
+            return entry[1]
+    value = loader()
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.monotonic(), value)
+    return value
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; DDPERTelegramBot/1.0)",
     "Accept": "text/html,application/xhtml+xml,application/json,*/*",
@@ -58,11 +76,11 @@ LINKS = {
 def clean(value):
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
-def fetch_json_player(name):
+def _fetch_json_player(name):
     response = requests.get(
         DDNET_API_URL.format(player=quote(name, safe="")),
         headers=HEADERS,
-        timeout=20,
+        timeout=(3, 7),
     )
     response.raise_for_status()
     data = response.json()
@@ -70,9 +88,13 @@ def fetch_json_player(name):
         return None
     return data
 
-def fetch_site_section(path):
+
+def fetch_json_player(name):
+    return cached("player:" + name.casefold(), 45, lambda: _fetch_json_player(name))
+
+def _fetch_site_section(path):
     url = urljoin(DDPER_URL, path)
-    response = requests.get(url, headers=HEADERS, timeout=20)
+    response = requests.get(url, headers=HEADERS, timeout=(3, 7))
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     title = clean(soup.title.get_text(" ", strip=True)) if soup.title else ""
@@ -87,6 +109,10 @@ def fetch_site_section(path):
     # Extract useful structured text when the page is rendered server-side.
     content = "\n".join(lines[:32])
     return {"url": url, "title": title, "content": content}
+
+
+def fetch_site_section(path):
+    return cached("section:" + path, 300, lambda: _fetch_site_section(path))
 
 def rank_text(value):
     if not isinstance(value, dict):
@@ -180,24 +206,24 @@ async def send_player(update, player_name):
         if not data:
             await msg.edit_text(
                 f"❌ بازیکن «{player_name}» در دیتابیس عمومی پیدا نشد. نام داخل بازی را دقیق بفرست.",
-                reply_markup=MENU,
+                
             )
             return
         report = make_player_report(player_name, data)
         if len(report) > 3900:
             report = report[:3650] + f'\n…\n<a href="{DDPER_URL}/players/{quote(player_name, safe="")}">مشاهده پروفایل کامل</a>'
-        await msg.edit_text(report, parse_mode="HTML", disable_web_page_preview=True, reply_markup=MENU)
+        await msg.edit_text(report, parse_mode="HTML", disable_web_page_preview=True)
     except requests.RequestException as exc:
         log.warning("Player API failed: %s", type(exc).__name__)
-        await msg.edit_text("⚠️ سرویس آمار بازیکن فعلاً پاسخ نمی‌دهد؛ کمی بعد دوباره امتحان کن.", reply_markup=MENU)
+        await msg.edit_text("⚠️ سرویس آمار بازیکن فعلاً پاسخ نمی‌دهد؛ کمی بعد دوباره امتحان کن.")
     except Exception:
         log.exception("Player report failed")
-        await msg.edit_text("⚠️ خطا هنگام آماده‌سازی آمار. لاگ سرویس برای بررسی ثبت شد.", reply_markup=MENU)
+        await msg.edit_text("⚠️ خطا هنگام آماده‌سازی آمار. لاگ سرویس برای بررسی ثبت شد.")
 
 async def send_section(update, section_name):
     path, label = SECTIONS[section_name]
     url = urljoin(DDPER_URL, path)
-    msg = await update.effective_message.reply_text(f"⏳ در حال دریافت اطلاعات «{label}» از DDPER…")
+    msg = await update.effective_message.reply_text(f"⏳ در حال دریافت اطلاعات «{label}» از DDPER…", reply_markup=MENU)
     try:
         page = await asyncio.to_thread(fetch_site_section, path)
         text = [f"🌐 <b>{label}</b>"]
